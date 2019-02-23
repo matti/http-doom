@@ -1,0 +1,86 @@
+<html>
+
+<style>
+  html,
+  body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    pointer-events: none;
+  }
+
+  img {
+    margin-left: auto;
+    margin-right: auto;
+    display: block;
+    height: 100%;
+    object-fit: cover;
+  }
+</style>
+
+<body>
+  <img id="snapshot" src="snapshot.jpg">
+</body>
+
+<script>
+  loadImage = () => {
+    setTimeout(() => {
+      snapshot.src = "snapshot.jpg?" + new Date().getTime();
+    }, 1)
+  }
+  snapshot.addEventListener("load", loadImage)
+  snapshot.addEventListener("error", loadImage)
+</script>
+
+<script>
+  keyMapper = (e) => {
+    switch (e.key) {
+      case " ":
+        return "space"
+      case "Enter":
+        return "Return"
+      case "ControlLeft":
+        return "Control"
+      case "ArrowUp":
+        return "Up"
+      case "ArrowDown":
+        return "Down"
+      case "ArrowLeft":
+        return "Left"
+      case "ArrowRight":
+        return "Right"
+      default:
+        return e.key
+    }
+  }
+
+  document.addEventListener("mousemove", (e) => { e.preventDefault() })
+  document.addEventListener("dragstart", (e) => { e.preventDefault() })
+
+  keys = []
+  requests = []
+
+  document.addEventListener("keydown", (e) => {
+    keys.push(["down", window.keyMapper(e)])
+  })
+
+  document.addEventListener("keyup", (e) => {
+    setTimeout(() => {
+      keys.push(["up", window.keyMapper(e)])
+    }, 100)
+  })
+
+  processKeys = () => {
+    if (operation = keys.pop()) {
+      requests.push(1);
+      fetch("/key/" + operation[0] + "/" + operation[1] + "?" + keys.length).then(() => {
+        requests.pop();
+      })
+    }
+    setTimeout(processKeys, 1);
+  }
+  processKeys();
+
+</script>
+
+</html>
