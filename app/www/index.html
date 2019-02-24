@@ -6,22 +6,78 @@
     margin: 0;
     height: 100%;
     background: #000;
-    pointer-events: none;
+    background-image: url('http-doom.png');
+    background-repeat: no-repeat;
+    background-position: center center;
+    color: white;
   }
 
-  img {
+  img#snapshot {
     margin-left: auto;
     margin-right: auto;
     display: block;
     height: 100%;
     object-fit: cover;
+    z-index: 99999;
+  }
+
+  div#settings {
+    position: absolute;
   }
 </style>
 
 <body>
-  <img id="snapshot" src="snapshot.jpg">
+  <div id="settings">
+    <p>
+      <img src="http-doom.png" width="150px">
+    </p>
+    <input id="resetBtn" type="button" value="RESET">
+    <p>Colorspace</p>
+    <input id="grayscaleBtn" type="button" value="Grayscale">
+    <input id="colorBtn" type="button" value="Color">
+    <p>Quality:</p>
+    <input id="quality15Btn" type="button" value="15">
+    <input id="quality25Btn" type="button" value="25">
+    <input id="quality50Btn" type="button" value="50">
+    <input id="quality75Btn" type="button" value="75">
+    <input id="quality100Btn" type="button" value="100">
+  </div>
+
+  <img id="snapshot">
 </body>
 
+
+<script>
+  resetBtn.addEventListener("click", () => {
+    fetch("/reset")
+  })
+  grayscaleBtn.addEventListener("click", () => {
+    fetch("/config/colorspace?Gray")
+  })
+  colorBtn.addEventListener("click", () => {
+    fetch("/config/colorspace?RGB")
+  })
+  resetBtn.addEventListener("click", () => {
+    fetch("/config/colorspace?Color")
+  })
+  quality15Btn.addEventListener("click", () => {
+    fetch("/config/quality?15")
+  })
+
+  quality25Btn.addEventListener("click", () => {
+    fetch("/config/quality?25")
+  })
+  quality50Btn.addEventListener("click", () => {
+    fetch("/config/quality?50")
+  })
+  quality75Btn.addEventListener("click", () => {
+    fetch("/config/quality?75")
+  })
+  quality100Btn.addEventListener("click", () => {
+    fetch("/config/quality?100")
+  })
+
+</script>
 <script>
   loadImage = () => {
     setTimeout(() => {
@@ -30,6 +86,14 @@
   }
   snapshot.addEventListener("load", loadImage)
   snapshot.addEventListener("error", loadImage)
+
+  snapshot.src = "snapshot.jpg"
+
+  hideLoading = () => {
+    document.body.style.backgroundImage = "url()"
+    snapshot.removeEventListener("load", hideLoading);
+  }
+  snapshot.addEventListener("load", hideLoading)
 </script>
 
 <script>

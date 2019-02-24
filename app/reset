@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+export DISPLAY=:0
+
+printf "Content-type: text/plain\n\n"
+
+killall chocolate-doom
+sleep 0.5
+killall chocolate-doom

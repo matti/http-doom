@@ -30,7 +30,7 @@ done
   while true; do
     set +e
       cp /app/tmp/Xvfb_screen0 /app/tmp/snapshot.xwd
-      nice -n 19 convert /app/tmp/snapshot.xwd /app/www/snapshot_new.jpg
+      nice -n 19 convert -colorspace $(cat /app/settings/colorspace) -quality $(cat /app/settings/quality) /app/tmp/snapshot.xwd /app/www/snapshot_new.jpg
       mv /app/www/snapshot_new.jpg /app/www/snapshot.jpg
       sleep 0.01
     set -e
@@ -47,7 +47,9 @@ sleep 1
   while true; do
     mkdir -p /root/.local/share/chocolate-doom
     cp /app/chocolate-doom.cfg /root/.local/share/chocolate-doom
-    nice -n 18 chocolate-doom -nosound -window -geometry 320x240
+    set +e
+      nice -n 18 chocolate-doom -nosound -window -geometry 320x240
+    set -e
   done
 ) &
 
