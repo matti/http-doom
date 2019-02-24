@@ -30,7 +30,7 @@ done
   while true; do
     set +e
       cp /app/tmp/Xvfb_screen0 /app/tmp/snapshot.xwd
-      nice -n 19 convert /app/tmp/snapshot.xwd -colorspace Gray -quality 25 /app/www/snapshot_new.jpg
+      nice -n 19 convert /app/tmp/snapshot.xwd /app/www/snapshot_new.jpg
       mv /app/www/snapshot_new.jpg /app/www/snapshot.jpg
       sleep 0.01
     set -e

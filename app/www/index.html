@@ -56,31 +56,48 @@
 
   document.addEventListener("mousemove", (e) => { e.preventDefault() })
   document.addEventListener("dragstart", (e) => { e.preventDefault() })
-
-  keys = []
-  requests = []
-
-  document.addEventListener("keydown", (e) => {
-    keys.push(["down", window.keyMapper(e)])
+  document.addEventListener("visibilitychange", (e) => {
+    console.log("visibilitychange", e)
   })
 
-  document.addEventListener("keyup", (e) => {
-    setTimeout(() => {
-      keys.push(["up", window.keyMapper(e)])
-    }, 100)
-  })
+  keys = {}
 
-  processKeys = () => {
-    if (operation = keys.pop()) {
-      requests.push(1);
-      fetch("/key/" + operation[0] + "/" + operation[1] + "?" + keys.length).then(() => {
-        requests.pop();
-      })
-    }
-    setTimeout(processKeys, 1);
+  keydown = (e) => {
+    performKey("down", e);
   }
-  processKeys();
+  keyup = (e) => {
+    performKey("up", e);
+  }
 
+  performKey = (operation, e) => {
+    const key = window.keyMapper(e);
+
+    if (key == "Tab") return;
+    if (key == "Meta") return;
+
+    // if already down do not send another down
+    if (operation == "down" && keys[key]) return;
+    // todo: mutex
+    // set keydown immediately because it will eventually happen
+    keys[key] = true;
+
+    fetch("/key/" + operation + "/" + key).then(() => {
+      // if key has been succesfully upped
+      if (operation == "up") {
+        keys[key] = false
+      }
+
+      console.log(keys)
+    }).catch((e) => {
+      console.log("key error", e)
+      setTimeout((operation, e) => {
+        performKey(operation, e)
+      }, 1)
+    })
+  }
+
+  document.addEventListener("keydown", keydown)
+  document.addEventListener("keyup", keyup)
 </script>
 
 </html>
