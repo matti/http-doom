@@ -41,152 +41,16 @@
     <input id="quality50Btn" type="button" value="50">
     <input id="quality75Btn" type="button" value="75">
     <input id="quality100Btn" type="button" value="100">
+    <p>FPS: <span id="fps"></span></p>
+
   </div>
 
   <img id="snapshot">
 </body>
 
 
-<script>
-  resetBtn.addEventListener("click", () => {
-    fetch("/reset")
-  })
-  grayscaleBtn.addEventListener("click", () => {
-    fetch("/config/colorspace?Gray")
-  })
-  colorBtn.addEventListener("click", () => {
-    fetch("/config/colorspace?RGB")
-  })
-  resetBtn.addEventListener("click", () => {
-    fetch("/config/colorspace?Color")
-  })
-  quality15Btn.addEventListener("click", () => {
-    fetch("/config/quality?15")
-  })
-
-  quality25Btn.addEventListener("click", () => {
-    fetch("/config/quality?25")
-  })
-  quality50Btn.addEventListener("click", () => {
-    fetch("/config/quality?50")
-  })
-  quality75Btn.addEventListener("click", () => {
-    fetch("/config/quality?75")
-  })
-  quality100Btn.addEventListener("click", () => {
-    fetch("/config/quality?100")
-  })
-
-</script>
-<script>
-  loadImage = () => {
-    setTimeout(() => {
-      snapshot.src = "snapshot.jpg?" + new Date().getTime();
-    }, 1)
-  }
-  snapshot.addEventListener("load", loadImage)
-  snapshot.addEventListener("error", loadImage)
-
-  snapshot.src = "snapshot.jpg"
-
-  hideLoading = () => {
-    document.body.style.backgroundImage = "url()"
-    snapshot.removeEventListener("load", hideLoading);
-  }
-  snapshot.addEventListener("load", hideLoading)
-</script>
-
-<script>
-  keyMapper = (e) => {
-    switch (e.key) {
-      case " ":
-        return "space"
-      case "Enter":
-        return "Return"
-      case "ControlLeft":
-        return "Control"
-      case "ArrowUp":
-        return "Up"
-      case "ArrowDown":
-        return "Down"
-      case "ArrowLeft":
-        return "Left"
-      case "ArrowRight":
-        return "Right"
-      default:
-        return e.key
-    }
-  }
-
-  reverseKeyMapper = (key) => {
-    switch (key) {
-      case "space":
-        return " "
-      case "Return":
-        return "Enter"
-      case "Control":
-        return "ControlLeft"
-      case "Up":
-        return "ArrowUp"
-      case "Down":
-        return "ArrowDown"
-      case "Left":
-        return "ArrowLeft"
-      case "Right":
-        return "ArrowRight"
-      default:
-        return key
-    }
-  }
-
-  document.addEventListener("mousemove", (e) => { e.preventDefault() })
-  document.addEventListener("dragstart", (e) => { e.preventDefault() })
-  document.addEventListener("visibilitychange", (e) => {
-    for (let key in window.keys) {
-      let newKey = window.reverseKeyMapper(key)
-      window.keyup({ key: newKey })
-    }
-  })
-
-  keys = {}
-
-  keydown = (e) => {
-    console.log('keys', window.keys)
-    performKey("down", e);
-  }
-
-  keyup = (e) => {
-    performKey("up", e);
-  }
-
-  performKey = (operation, e) => {
-    const key = window.keyMapper(e);
-
-    if (key == "Tab") return;
-    if (key == "Meta") return;
-
-    // if already down do not send another down
-    if (operation == "down" && keys[key]) return;
-    // todo: mutex
-    // set keydown immediately because it will eventually happen
-    keys[key] = true;
-
-    fetch("/key/" + operation + "/" + key).then(() => {
-      // if key has been succesfully upped
-      if (operation == "up") {
-        keys[key] = false
-        console.log('UP', key)
-      }
-    }).catch((e) => {
-      console.log("key error", e)
-      setTimeout((operation, e) => {
-        performKey(operation, e)
-      }, 1)
-    })
-  }
-
-  document.addEventListener("keydown", keydown)
-  document.addEventListener("keyup", keyup)
-</script>
+<script src="javascript/settings.js"> </script>
+<script src="javascript/load.js"> </script>
+<script src="javascript/keys.js"> </script>
 
 </html>
