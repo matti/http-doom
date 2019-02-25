@@ -118,17 +118,43 @@
     }
   }
 
+  reverseKeyMapper = (key) => {
+    switch (key) {
+      case "space":
+        return " "
+      case "Return":
+        return "Enter"
+      case "Control":
+        return "ControlLeft"
+      case "Up":
+        return "ArrowUp"
+      case "Down":
+        return "ArrowDown"
+      case "Left":
+        return "ArrowLeft"
+      case "Right":
+        return "ArrowRight"
+      default:
+        return key
+    }
+  }
+
   document.addEventListener("mousemove", (e) => { e.preventDefault() })
   document.addEventListener("dragstart", (e) => { e.preventDefault() })
   document.addEventListener("visibilitychange", (e) => {
-    console.log("visibilitychange", e)
+    for (let key in window.keys) {
+      let newKey = window.reverseKeyMapper(key)
+      window.keyup({ key: newKey })
+    }
   })
 
   keys = {}
 
   keydown = (e) => {
+    console.log('keys', window.keys)
     performKey("down", e);
   }
+
   keyup = (e) => {
     performKey("up", e);
   }
@@ -149,9 +175,8 @@
       // if key has been succesfully upped
       if (operation == "up") {
         keys[key] = false
+        console.log('UP', key)
       }
-
-      console.log(keys)
     }).catch((e) => {
       console.log("key error", e)
       setTimeout((operation, e) => {
