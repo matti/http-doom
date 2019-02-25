@@ -32,7 +32,7 @@ done
       cp /app/tmp/Xvfb_screen0 /app/tmp/snapshot.xwd
       nice -n 19 convert -colorspace $(cat /app/settings/colorspace) -quality $(cat /app/settings/quality) /app/tmp/snapshot.xwd /app/www/snapshot_new.jpg
       mv /app/www/snapshot_new.jpg /app/www/snapshot.jpg
-      sleep 0.016
+      sleep 0.028
     set -e
   done
 ) &

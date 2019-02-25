@@ -1,4 +1,4 @@
-FPS = 60
+FPS = 35
 timestamp = new Date().getTime();
 images = 0
 
