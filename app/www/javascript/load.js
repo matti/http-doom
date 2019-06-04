@@ -13,13 +13,13 @@ loadImage = () => {
   setTimeout(() => {
     images++
     timestamp = new Date().getTime()
-    snapshot.src = "snapshot.jpg?" + timestamp
+    snapshot.src = "screen/snapshot.jpg?" + timestamp
   }, ((1 / FPS) * 1000) - (new Date().getTime() - timestamp))
 }
 snapshot.addEventListener("load", loadImage)
 snapshot.addEventListener("error", loadImage)
 
-snapshot.src = "snapshot.jpg"
+snapshot.src = "screen/snapshot.jpg"
 
 hideLoading = () => {
   document.body.style.backgroundImage = "url()"

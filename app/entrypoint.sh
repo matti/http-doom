@@ -1,8 +1,12 @@
 #!/usr/bin/env sh
 
-set -e
+set -euxo pipefail
+
+echo $(whoami)
+echo $HOME
 
 mkdir -p /app/tmp
+mkdir -p /app/www/screen
 
 Error() {
   echo "$1 EXITED"
@@ -28,10 +32,10 @@ done
 
 (
   while true; do
-    set +e
+    set +ex
       cp /app/tmp/Xvfb_screen0 /app/tmp/snapshot.xwd
-      nice -n 19 convert -colorspace $(cat /app/settings/colorspace) -quality $(cat /app/settings/quality) /app/tmp/snapshot.xwd /app/www/snapshot_new.jpg
-      mv /app/www/snapshot_new.jpg /app/www/snapshot.jpg
+      nice -n 19 convert -colorspace $(cat /app/settings/colorspace) -quality $(cat /app/settings/quality) /app/tmp/snapshot.xwd /app/tmp/snapshot.jpg
+      mv /app/tmp/snapshot.jpg /app/www/screen/snapshot.jpg
       sleep 0.028
     set -e
   done
@@ -45,8 +49,8 @@ done
 sleep 1
 (
   while true; do
-    mkdir -p /root/.local/share/chocolate-doom
-    cp /app/chocolate-doom.cfg /root/.local/share/chocolate-doom
+    mkdir -p $HOME/.local/share/chocolate-doom
+    cp /app/chocolate-doom.cfg $HOME/.local/share/chocolate-doom
     set +e
       nice -n 18 chocolate-doom -nosound -window -geometry 320x240
     set -e
