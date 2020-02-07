@@ -5,9 +5,6 @@ set -euxo pipefail
 echo $(whoami)
 echo $HOME
 
-mkdir -p /app/tmp
-mkdir -p /app/www/screen
-
 Error() {
   echo "$1 EXITED"
   exit 1
