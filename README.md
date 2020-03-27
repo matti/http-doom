@@ -1,4 +1,5 @@
 # http-doom
+[![Run on Google Cloud](https://deploy.cloud.run/button.svg)](https://deploy.cloud.run)
 
 Play doom with HTTP1.1, no WebSockets or VNC needed!
 
@@ -6,4 +7,3 @@ Play doom with HTTP1.1, no WebSockets or VNC needed!
     
 ![screenshot](https://github.com/matti/http-doom/raw/master/screenshot.jpg)
 
-[![Run on Google Cloud](https://deploy.cloud.run/button.svg)](https://deploy.cloud.run)
