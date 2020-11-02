@@ -1,10 +1,8 @@
-FROM alpine
+FROM ansemjo/caddy:cgi
 
 RUN apk add --no-cache xvfb imagemagick xclock curl xdpyinfo xdotool bash bc
 RUN apk add --no-cache chocolate-doom --repository http://nl.alpinelinux.org/alpine/edge/testing
-
-WORKDIR /usr/local/bin
-RUN curl https://getcaddy.com | bash -s personal http.cgi
+RUN mv /caddy /usr/local/bin/caddy
 
 WORKDIR /app
 
