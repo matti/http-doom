@@ -10,4 +10,5 @@ COPY app .
 
 ENV PORT=8080
 ENV DISPLAY=:0
+
 ENTRYPOINT [ "/app/entrypoint.sh" ]
