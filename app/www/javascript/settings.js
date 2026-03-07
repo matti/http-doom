@@ -15,4 +15,19 @@
   bindClick("quality50Btn", "/config/quality?50");
   bindClick("quality75Btn", "/config/quality?75");
   bindClick("quality100Btn", "/config/quality?100");
+
+  // Poll game status (mode, peers)
+  var modeEl = document.getElementById("mode");
+  function pollStatus() {
+    fetch("/status")
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        modeEl.textContent = data.mode || "unknown";
+      })
+      .catch(function () {
+        modeEl.textContent = "offline";
+      });
+  }
+  pollStatus();
+  setInterval(pollStatus, 5000);
 })();

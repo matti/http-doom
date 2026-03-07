@@ -1,0 +1,45 @@
+# Multiplayer setup: 2 players with UDP autodiscovery
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.multiplayer.yml up --build
+#
+# Each player gets their own web UI:
+#   Player 1: http://localhost:8081
+#   Player 2: http://localhost:8082
+
+services:
+  player1:
+    build: .
+    image: ${IMAGE:-http-doom}
+    hostname: player1
+    environment:
+      - PORT=8080
+      - DOOM_MULTIPLAYER=1
+      - DOOM_MODE=auto
+      - DOOM_PLAYERS=2
+      - DOOM_DEATHMATCH=${DOOM_DEATHMATCH:-}
+      - DOOM_SKILL=${DOOM_SKILL:-3}
+    ports:
+      - "8081:8080"
+    networks:
+      - doom-net
+
+  player2:
+    build: .
+    image: ${IMAGE:-http-doom}
+    hostname: player2
+    environment:
+      - PORT=8080
+      - DOOM_MULTIPLAYER=1
+      - DOOM_MODE=auto
+      - DOOM_PLAYERS=2
+      - DOOM_DEATHMATCH=${DOOM_DEATHMATCH:-}
+      - DOOM_SKILL=${DOOM_SKILL:-3}
+    ports:
+      - "8082:8080"
+    networks:
+      - doom-net
+
+networks:
+  doom-net:
+    driver: bridge

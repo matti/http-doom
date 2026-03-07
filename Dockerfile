@@ -13,6 +13,8 @@ RUN apk add --no-cache \
     xdpyinfo \
     xdotool \
     bash \
+    curl \
+    socat \
     && apk add --no-cache chocolate-doom \
     --repository http://dl-cdn.alpinelinux.org/alpine/edge/testing
 
@@ -25,5 +27,7 @@ ENV PORT=8080
 ENV DISPLAY=:0
 
 EXPOSE 8080
+EXPOSE 2342/udp
+EXPOSE 2399/udp
 
 ENTRYPOINT ["/app/entrypoint.sh"]

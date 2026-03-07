@@ -18,4 +18,7 @@
 	cgi /config/* /app/config {
 		script_name /config
 	}
+	cgi /status /app/status {
+		script_name /status
+	}
 }
