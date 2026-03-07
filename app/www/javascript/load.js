@@ -1,28 +1,45 @@
-FPS = 35
-timestamp = new Date().getTime();
-images = 0
+(function () {
+  "use strict";
 
-fpsMeter = () => {
-  fps.innerText = images
-  images = 0
-  setTimeout(fpsMeter, 1000)
-}
-fpsMeter()
+  const TARGET_FPS = 35;
+  const FRAME_INTERVAL = 1000 / TARGET_FPS;
+  const snapshotEl = document.getElementById("snapshot");
+  const fpsEl = document.getElementById("fps");
 
-loadImage = () => {
-  setTimeout(() => {
-    images++
-    timestamp = new Date().getTime()
-    snapshot.src = "screen/snapshot.jpg?" + timestamp
-  }, ((1 / FPS) * 1000) - (new Date().getTime() - timestamp))
-}
-snapshot.addEventListener("load", loadImage)
-snapshot.addEventListener("error", loadImage)
+  let lastTimestamp = performance.now();
+  let frameCount = 0;
 
-snapshot.src = "screen/snapshot.jpg"
+  // FPS counter — updates display every second
+  function updateFpsMeter() {
+    fpsEl.textContent = frameCount;
+    frameCount = 0;
+    setTimeout(updateFpsMeter, 1000);
+  }
+  updateFpsMeter();
 
-hideLoading = () => {
-  document.body.style.backgroundImage = "url()"
-  snapshot.removeEventListener("load", hideLoading);
-}
-snapshot.addEventListener("load", hideLoading)
+  // Load the next frame, pacing to target FPS
+  function loadNextFrame() {
+    const now = performance.now();
+    const elapsed = now - lastTimestamp;
+    const delay = Math.max(0, FRAME_INTERVAL - elapsed);
+
+    setTimeout(function () {
+      frameCount++;
+      lastTimestamp = performance.now();
+      snapshotEl.src = "screen/snapshot.jpg?" + lastTimestamp;
+    }, delay);
+  }
+
+  snapshotEl.addEventListener("load", loadNextFrame);
+  snapshotEl.addEventListener("error", loadNextFrame);
+
+  // Hide loading background on first successful frame
+  function hideLoading() {
+    document.body.style.backgroundImage = "none";
+    snapshotEl.removeEventListener("load", hideLoading);
+  }
+  snapshotEl.addEventListener("load", hideLoading);
+
+  // Kick off first frame load
+  snapshotEl.src = "screen/snapshot.jpg";
+})();

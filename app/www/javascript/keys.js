@@ -1,67 +1,64 @@
-keyMapper = (e) => {
-  switch (e.key) {
-    case " ":
-      return "space"
-    case "Enter":
-      return "Return"
-    case "ControlLeft":
-      return "Control"
-    case "ArrowUp":
-      return "Up"
-    case "ArrowDown":
-      return "Down"
-    case "ArrowLeft":
-      return "Left"
-    case "ArrowRight":
-      return "Right"
-    default:
-      return e.key
+(function () {
+  "use strict";
+
+  const KEY_MAP = {
+    " ": "space",
+    "Enter": "Return",
+    "ControlLeft": "Control",
+    "ArrowUp": "Up",
+    "ArrowDown": "Down",
+    "ArrowLeft": "Left",
+    "ArrowRight": "Right",
+  };
+
+  const IGNORED_KEYS = new Set(["Tab", "Meta"]);
+  const pressedKeys = {};
+
+  function mapKey(e) {
+    return KEY_MAP[e.key] || e.key;
   }
-}
 
-keys = {}
+  function performKey(operation, key) {
+    if (IGNORED_KEYS.has(key)) return;
 
-document.addEventListener("mousemove", (e) => { e.preventDefault() })
-document.addEventListener("dragstart", (e) => { e.preventDefault() })
-document.addEventListener("visibilitychange", (e) => {
-  console.log("visibilitychange", e)
-  Object.keys(keys).filter(key => keys[key]).forEach(key => {
-    performKey("up", key)
-  })
-})
+    // Prevent duplicate keydown events
+    if (operation === "down" && pressedKeys[key]) return;
 
-keydown = (e) => {
-  performKey("down", keyMapper(e));
-}
-keyup = (e) => {
-  performKey("up", keyMapper(e));
-}
-
-performKey = (operation, key) => {
-
-  if (key == "Tab") return;
-  if (key == "Meta") return;
-
-  // if already down do not send another down
-  if (operation == "down" && keys[key]) return;
-  // todo: mutex
-  // set keydown immediately because it will eventually happen
-  keys[key] = true;
-
-  fetch("/key/" + operation + "/" + key).then(() => {
-    // if key has been succesfully upped
-    if (operation == "up") {
-      keys[key] = false
+    // Mark as pressed immediately (optimistic)
+    if (operation === "down") {
+      pressedKeys[key] = true;
     }
 
-    console.log(keys)
-  }).catch((e) => {
-    console.log("key error", e)
-    setTimeout(() => {
-      performKey(operation, key)
-    }, 1)
-  })
-}
+    fetch("/key/" + operation + "/" + key)
+      .then(function () {
+        if (operation === "up") {
+          pressedKeys[key] = false;
+        }
+      })
+      .catch(function () {
+        // Retry once on failure
+        setTimeout(function () {
+          performKey(operation, key);
+        }, 10);
+      });
+  }
 
-document.addEventListener("keydown", keydown)
-document.addEventListener("keyup", keyup)
+  // Release all keys when tab/window loses focus
+  document.addEventListener("visibilitychange", function () {
+    Object.keys(pressedKeys)
+      .filter(function (key) { return pressedKeys[key]; })
+      .forEach(function (key) { performKey("up", key); });
+  });
+
+  document.addEventListener("keydown", function (e) {
+    performKey("down", mapKey(e));
+  });
+
+  document.addEventListener("keyup", function (e) {
+    performKey("up", mapKey(e));
+  });
+
+  // Prevent drag/selection interference with gameplay
+  document.addEventListener("mousemove", function (e) { e.preventDefault(); });
+  document.addEventListener("dragstart", function (e) { e.preventDefault(); });
+})();

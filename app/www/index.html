@@ -1,36 +1,42 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTTP Doom</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #000 url('http-doom.png') no-repeat center center;
+      color: #fff;
+      font-family: monospace;
+    }
 
-<style>
-  html,
-  body {
-    margin: 0;
-    height: 100%;
-    background: #000;
-    background-image: url('http-doom.png');
-    background-repeat: no-repeat;
-    background-position: center center;
-    color: white;
-  }
+    #snapshot {
+      display: block;
+      margin: 0 auto;
+      height: 100%;
+      object-fit: cover;
+      z-index: 1;
+    }
 
-  img#snapshot {
-    margin-left: auto;
-    margin-right: auto;
-    display: block;
-    height: 100%;
-    object-fit: cover;
-    z-index: 99999;
-  }
+    #settings {
+      position: absolute;
+      top: 0;
+      left: 0;
+      padding: 8px;
+      z-index: 2;
+    }
 
-  div#settings {
-    position: absolute;
-  }
-</style>
-
+    #settings input[type="button"] {
+      cursor: pointer;
+    }
+  </style>
+</head>
 <body>
   <div id="settings">
-    <p>
-      <img src="http-doom.png" width="150px">
-    </p>
+    <p><img src="http-doom.png" width="150" alt="HTTP Doom"></p>
     <input id="resetBtn" type="button" value="RESET">
     <p>Colorspace</p>
     <input id="grayscaleBtn" type="button" value="Grayscale">
@@ -41,16 +47,13 @@
     <input id="quality50Btn" type="button" value="50">
     <input id="quality75Btn" type="button" value="75">
     <input id="quality100Btn" type="button" value="100">
-    <p>FPS: <span id="fps"></span></p>
-
+    <p>FPS: <span id="fps">0</span></p>
   </div>
 
-  <img id="snapshot">
+  <img id="snapshot" alt="Game screen">
+
+  <script src="javascript/settings.js"></script>
+  <script src="javascript/load.js"></script>
+  <script src="javascript/keys.js"></script>
 </body>
-
-
-<script src="javascript/settings.js"> </script>
-<script src="javascript/load.js"> </script>
-<script src="javascript/keys.js"> </script>
-
 </html>
