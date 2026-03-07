@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -e
+
+# Unified CGI handler for per-player actions.
+# PATH_INFO format: /<slot>/<action>[/<param>]
+# Examples:
+#   /1/key/down/Up     → keydown Up on display :1
+#   /2/key/up/space    → keyup space on display :2
+#   /3/reset           → kill doom on slot 3 (auto-restarts)
+#   /1/config/quality  → set quality (from QUERY_STRING)
+#   /2/heartbeat       → update last_activity timestamp
+
+printf "Content-type: text/plain\n\n"
+
+MAX_SLOTS="${DOOM_MAX_SLOTS:-4}"
+
+# Parse PATH_INFO: /<slot>/<action>/...
+slot=$(echo "$PATH_INFO" | cut -d/ -f2)
+action=$(echo "$PATH_INFO" | cut -d/ -f3)
+sub_action=$(echo "$PATH_INFO" | cut -d/ -f4)
+param=$(echo "$PATH_INFO" | cut -d/ -f5)
+
+# Validate slot
+if [ -z "$slot" ] || [ "$slot" -lt 1 ] 2>/dev/null || [ "$slot" -gt "$MAX_SLOTS" ] 2>/dev/null; then
+  echo "invalid slot"
+  exit 0
+fi
+
+sd="/app/slots/$slot"
+
+# Check slot is active (except for heartbeat which is harmless)
+if [ "$action" != "heartbeat" ] && [ "$(cat "$sd/active" 2>/dev/null)" != "1" ]; then
+  echo "slot not active"
+  exit 0
+fi
+
+case "$action" in
+  key)
+    # Sanitize key name
+    key=$(echo "$param" | sed 's/[^a-zA-Z0-9]//g')
+    export DISPLAY=":$slot"
+    case "$sub_action" in
+      down) xdotool keydown "$key" & ;;
+      up)   xdotool keyup "$key" & ;;
+    esac
+    date +%s > "$sd/last_activity"
+    ;;
+  reset)
+    if [ -f "$sd/doom_pid" ]; then
+      kill -9 "$(cat "$sd/doom_pid")" 2>/dev/null || true
+    fi
+    date +%s > "$sd/last_activity"
+    ;;
+  config)
+    case "$sub_action" in
+      colorspace)
+        case "$QUERY_STRING" in
+          RGB|Gray) echo "$QUERY_STRING" > "$sd/colorspace" ;;
+        esac
+        ;;
+      quality)
+        case "$QUERY_STRING" in
+          15|25|50|75|100) echo "$QUERY_STRING" > "$sd/quality" ;;
+        esac
+        ;;
+    esac
+    date +%s > "$sd/last_activity"
+    ;;
+  heartbeat)
+    date +%s > "$sd/last_activity"
+    ;;
+  *)
+    echo "unknown action: $action"
+    ;;
+esac

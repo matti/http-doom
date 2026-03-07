@@ -1,58 +1,65 @@
-#!/usr/bin/env sh
-
+#!/usr/bin/env bash
 set -euxo pipefail
 
-echo $(whoami)
-echo $HOME
+MAX_SLOTS="${DOOM_MAX_SLOTS:-4}"
+IDLE_TIMEOUT="${DOOM_IDLE_TIMEOUT:-300}"
 
-Error() {
-  echo "$1 EXITED"
-  exit 1
-}
+echo "http-doom starting: max_slots=$MAX_SLOTS idle_timeout=${IDLE_TIMEOUT}s"
 
-(
-  Xvfb :0 -nocursor -screen 0 320x240x24 -fbdir /app/tmp
-) &
-
-while true; do
-  set +e
-    xdpyinfo -display :0 >/dev/null 2>&1
-    xdpyinfo_code=$?
-  set -e
-  if [ "$xdpyinfo_code" = "0" ]; then
-    echo "X started"
-    break
-  fi
-  echo "Waiting X .."
-  sleep 0.1
+# --- Create slot directories ---
+for i in $(seq 1 "$MAX_SLOTS"); do
+  mkdir -p "/app/slots/$i/doom-home"
+  mkdir -p "/app/tmp/fb/$i"
+  mkdir -p "/app/www/player/$i/screen"
+  echo "0"   > "/app/slots/$i/active"
+  echo "RGB" > "/app/slots/$i/colorspace"
+  echo "50"  > "/app/slots/$i/quality"
 done
 
-(
-  while true; do
-    set +ex
-      cp /app/tmp/Xvfb_screen0 /app/tmp/snapshot.xwd
-      nice -n 19 convert -colorspace $(cat /app/settings/colorspace) -quality $(cat /app/settings/quality) /app/tmp/snapshot.xwd /app/tmp/snapshot.jpg
-      mv /app/tmp/snapshot.jpg /app/www/screen/snapshot.jpg
-      sleep 0.028
-    set -e
-  done
-) &
+# --- Start one Xvfb per slot ---
+for i in $(seq 1 "$MAX_SLOTS"); do
+  Xvfb ":$i" -nocursor -screen 0 320x240x24 -fbdir "/app/tmp/fb/$i" &
+done
 
-(
-  cd /app/www
-  caddy --port $PORT --conf /app/Caddyfile
-) &
+# Wait for all X displays to be ready
+for i in $(seq 1 "$MAX_SLOTS"); do
+  while ! xdpyinfo -display ":$i" >/dev/null 2>&1; do
+    sleep 0.1
+  done
+  echo "X display :$i ready"
+done
+
+# --- Start Caddy ---
+caddy run --config /app/Caddyfile --adapter caddyfile &
 
 sleep 1
+
+# --- Watchdog: free idle slots and detect dead doom processes ---
 (
   while true; do
-    mkdir -p $HOME/.local/share/chocolate-doom
-    cp /app/chocolate-doom.cfg $HOME/.local/share/chocolate-doom
-    set +e
-      nice -n 18 chocolate-doom -nosound -window -geometry 320x240
-    set -e
+    sleep 30
+    now=$(date +%s)
+    for i in $(seq 1 "$MAX_SLOTS"); do
+      sd="/app/slots/$i"
+      if [ "$(cat "$sd/active" 2>/dev/null)" = "1" ]; then
+        last=$(cat "$sd/last_activity" 2>/dev/null || echo "$now")
+        idle=$((now - last))
+        if [ "$idle" -ge "$IDLE_TIMEOUT" ]; then
+          echo "Slot $i idle for ${idle}s (timeout=${IDLE_TIMEOUT}s), freeing"
+          /app/slot-ctl stop "$i"
+        fi
+        # Detect dead slot-ctl (doom crashed and didn't restart)
+        if [ -f "$sd/ctl_pid" ]; then
+          if ! kill -0 "$(cat "$sd/ctl_pid")" 2>/dev/null; then
+            echo "Slot $i ctl process dead, cleaning up"
+            echo "0" > "$sd/active"
+            rm -f "$sd/ctl_pid" "$sd/doom_pid"
+          fi
+        fi
+      fi
+    done
   done
 ) &
 
-
-tail -f /dev/null
+echo "http-doom ready"
+wait

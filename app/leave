@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -e
+
+printf "Content-type: application/json\n\n"
+
+MAX_SLOTS="${DOOM_MAX_SLOTS:-4}"
+
+# Extract slot number from PATH_INFO: /N
+slot=$(echo "$PATH_INFO" | tr -dc '0-9')
+
+if [ -z "$slot" ] || [ "$slot" -lt 1 ] || [ "$slot" -gt "$MAX_SLOTS" ]; then
+  printf '{"error":"invalid slot"}\n'
+  exit 0
+fi
+
+if [ "$(cat "/app/slots/$slot/active" 2>/dev/null)" = "1" ]; then
+  /app/slot-ctl stop "$slot"
+  printf '{"ok":true,"slot":%d}\n' "$slot"
+else
+  printf '{"ok":true,"slot":%d,"note":"already free"}\n' "$slot"
+fi

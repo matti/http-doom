@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -e
+
+printf "Content-type: application/json\n\n"
+
+MAX_SLOTS="${DOOM_MAX_SLOTS:-4}"
+
+# Find first free slot
+for i in $(seq 1 "$MAX_SLOTS"); do
+  sd="/app/slots/$i"
+  if [ "$(cat "$sd/active" 2>/dev/null)" != "1" ]; then
+    # Claim the slot
+    echo "1" > "$sd/active"
+    date +%s > "$sd/last_activity"
+    echo "RGB" > "$sd/colorspace"
+    echo "50" > "$sd/quality"
+
+    # Start doom + capture in background (detached from CGI)
+    setsid /app/slot-ctl start "$i" </dev/null >/dev/null 2>&1 &
+
+    printf '{"slot":%d}\n' "$i"
+    exit 0
+  fi
+done
+
+# No free slots
+printf '{"error":"no free slots"}\n'

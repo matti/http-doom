@@ -1,0 +1,34 @@
+# Multi-slot capacity E2E tests
+#
+# Runs all 4 slots in a single container and validates
+# slot allocation, isolation, exhaustion, and reuse.
+#
+# Usage:
+#   docker compose -f docker-compose.test-multiplayer.yml up --build --abort-on-container-exit
+
+services:
+  app:
+    build: .
+    image: ${IMAGE:-http-doom}
+    environment:
+      - PORT=8080
+      - DOOM_MAX_SLOTS=4
+      - DOOM_IDLE_TIMEOUT=300
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  e2e-multiplayer:
+    image: alpine:3.20
+    depends_on:
+      app:
+        condition: service_healthy
+    command: >
+      sh -c "apk add --no-cache bash curl imagemagick && bash /test/e2e-multiplayer.sh"
+    environment:
+      - BASE_URL=http://app:8080
+    volumes:
+      - ./test:/test:ro

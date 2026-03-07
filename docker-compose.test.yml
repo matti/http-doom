@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    image: ${IMAGE:-http-doom}
+    environment:
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  e2e:
+    image: alpine:3.20
+    depends_on:
+      app:
+        condition: service_healthy
+    command: >
+      sh -c "apk add --no-cache bash curl imagemagick && bash /test/e2e.sh"
+    environment:
+      - BASE_URL=http://app:8080
+    volumes:
+      - ./test:/test:ro

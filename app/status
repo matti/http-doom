@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -e
+
+printf "Content-type: application/json\n\n"
+
+MAX_SLOTS="${DOOM_MAX_SLOTS:-4}"
+now=$(date +%s)
+
+printf '{"max_slots":%d,"slots":{' "$MAX_SLOTS"
+
+first=true
+for i in $(seq 1 "$MAX_SLOTS"); do
+  sd="/app/slots/$i"
+  active=$(cat "$sd/active" 2>/dev/null || echo "0")
+  idle=0
+
+  if [ "$active" = "1" ]; then
+    last=$(cat "$sd/last_activity" 2>/dev/null || echo "$now")
+    idle=$((now - last))
+    active_json="true"
+  else
+    active_json="false"
+  fi
+
+  if [ "$first" = "true" ]; then
+    first=false
+  else
+    printf ','
+  fi
+
+  printf '"%d":{"active":%s,"idle_seconds":%d}' "$i" "$active_json" "$idle"
+done
+
+printf '}}\n'

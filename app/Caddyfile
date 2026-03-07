@@ -1,9 +1,30 @@
-* {
-  tls off
+{
+	order cgi before respond
+}
 
-  cgi /key/down /app/keys
-  cgi /key/up /app/keys
-  cgi /key/press /app/keys
-  cgi /reset /app/reset
-  cgi /config /app/config
+:{$PORT} {
+	root * /app/www
+	file_server
+
+	cgi /join /app/join {
+		script_name /join
+	}
+	cgi /leave/* /app/leave {
+		script_name /leave
+	}
+	cgi /status /app/status {
+		script_name /status
+	}
+	cgi /player/*/key/* /app/player {
+		script_name /player
+	}
+	cgi /player/*/reset /app/player {
+		script_name /player
+	}
+	cgi /player/*/config/* /app/player {
+		script_name /player
+	}
+	cgi /player/*/heartbeat /app/player {
+		script_name /player
+	}
 }
