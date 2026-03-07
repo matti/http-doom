@@ -1,33 +1,30 @@
 (function () {
   "use strict";
 
-  function bindClick(id, url) {
+  window.doom = window.doom || {};
+
+  var slot = null;
+
+  function bindClick(id, pathFn) {
     document.getElementById(id).addEventListener("click", function () {
-      fetch(url);
+      if (slot) fetch(pathFn());
     });
   }
 
-  bindClick("resetBtn", "/reset");
-  bindClick("grayscaleBtn", "/config/colorspace?Gray");
-  bindClick("colorBtn", "/config/colorspace?RGB");
-  bindClick("quality15Btn", "/config/quality?15");
-  bindClick("quality25Btn", "/config/quality?25");
-  bindClick("quality50Btn", "/config/quality?50");
-  bindClick("quality75Btn", "/config/quality?75");
-  bindClick("quality100Btn", "/config/quality?100");
+  window.doom.startSettings = function (s) {
+    slot = s;
+  };
 
-  // Poll game status (mode, peers)
-  var modeEl = document.getElementById("mode");
-  function pollStatus() {
-    fetch("/status")
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        modeEl.textContent = data.mode || "unknown";
-      })
-      .catch(function () {
-        modeEl.textContent = "offline";
-      });
-  }
-  pollStatus();
-  setInterval(pollStatus, 5000);
+  window.doom.stopSettings = function () {
+    slot = null;
+  };
+
+  bindClick("resetBtn", function () { return "/player/" + slot + "/reset"; });
+  bindClick("grayscaleBtn", function () { return "/player/" + slot + "/config/colorspace?Gray"; });
+  bindClick("colorBtn", function () { return "/player/" + slot + "/config/colorspace?RGB"; });
+  bindClick("quality15Btn", function () { return "/player/" + slot + "/config/quality?15"; });
+  bindClick("quality25Btn", function () { return "/player/" + slot + "/config/quality?25"; });
+  bindClick("quality50Btn", function () { return "/player/" + slot + "/config/quality?50"; });
+  bindClick("quality75Btn", function () { return "/player/" + slot + "/config/quality?75"; });
+  bindClick("quality100Btn", function () { return "/player/" + slot + "/config/quality?100"; });
 })();

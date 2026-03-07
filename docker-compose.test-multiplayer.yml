@@ -1,67 +1,34 @@
-# Multiplayer E2E tests
+# Multi-slot capacity E2E tests
 #
-# Starts two players with autodiscovery on a shared network,
-# then runs the multiplayer test suite against both.
+# Runs all 4 slots in a single container and validates
+# slot allocation, isolation, exhaustion, and reuse.
 #
 # Usage:
 #   docker compose -f docker-compose.test-multiplayer.yml up --build --abort-on-container-exit
 
 services:
-  player1:
+  app:
     build: .
     image: ${IMAGE:-http-doom}
-    hostname: player1
     environment:
       - PORT=8080
-      - DOOM_MULTIPLAYER=1
-      - DOOM_MODE=auto
-      - DOOM_PLAYERS=2
-      - DOOM_PEERS=player2
-    networks:
-      - doom-test-net
+      - DOOM_MAX_SLOTS=4
+      - DOOM_IDLE_TIMEOUT=300
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 2s
       timeout: 5s
       retries: 30
-      start_period: 5s
-
-  player2:
-    build: .
-    image: ${IMAGE:-http-doom}
-    hostname: player2
-    environment:
-      - PORT=8080
-      - DOOM_MULTIPLAYER=1
-      - DOOM_MODE=auto
-      - DOOM_PLAYERS=2
-      - DOOM_PEERS=player1
-    networks:
-      - doom-test-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-      start_period: 5s
+      start_period: 10s
 
   e2e-multiplayer:
     image: alpine:3.20
     depends_on:
-      player1:
-        condition: service_healthy
-      player2:
+      app:
         condition: service_healthy
     command: >
       sh -c "apk add --no-cache bash curl && bash /test/e2e-multiplayer.sh"
     environment:
-      - PLAYER1_URL=http://player1:8080
-      - PLAYER2_URL=http://player2:8080
+      - BASE_URL=http://app:8080
     volumes:
       - ./test:/test:ro
-    networks:
-      - doom-test-net
-
-networks:
-  doom-test-net:
-    driver: bridge

@@ -1,7 +1,9 @@
 (function () {
   "use strict";
 
-  const KEY_MAP = {
+  window.doom = window.doom || {};
+
+  var KEY_MAP = {
     " ": "space",
     "Enter": "Return",
     "ControlLeft": "Control",
@@ -11,54 +13,62 @@
     "ArrowRight": "Right",
   };
 
-  const IGNORED_KEYS = new Set(["Tab", "Meta"]);
-  const pressedKeys = {};
+  var IGNORED_KEYS = { "Tab": true, "Meta": true };
+  var pressedKeys = {};
+  var active = false;
+  var slot = null;
 
   function mapKey(e) {
     return KEY_MAP[e.key] || e.key;
   }
 
   function performKey(operation, key) {
-    if (IGNORED_KEYS.has(key)) return;
-
-    // Prevent duplicate keydown events
+    if (!active || !slot) return;
+    if (IGNORED_KEYS[key]) return;
     if (operation === "down" && pressedKeys[key]) return;
+    if (operation === "down") pressedKeys[key] = true;
 
-    // Mark as pressed immediately (optimistic)
-    if (operation === "down") {
-      pressedKeys[key] = true;
-    }
-
-    fetch("/key/" + operation + "/" + key)
+    fetch("/player/" + slot + "/key/" + operation + "/" + key)
       .then(function () {
-        if (operation === "up") {
-          pressedKeys[key] = false;
-        }
+        if (operation === "up") pressedKeys[key] = false;
       })
       .catch(function () {
-        // Retry once on failure
-        setTimeout(function () {
-          performKey(operation, key);
-        }, 10);
+        setTimeout(function () { performKey(operation, key); }, 10);
       });
   }
 
-  // Release all keys when tab/window loses focus
-  document.addEventListener("visibilitychange", function () {
+  function onKeyDown(e) { performKey("down", mapKey(e)); }
+  function onKeyUp(e) { performKey("up", mapKey(e)); }
+
+  function onVisibilityChange() {
     Object.keys(pressedKeys)
-      .filter(function (key) { return pressedKeys[key]; })
-      .forEach(function (key) { performKey("up", key); });
-  });
+      .filter(function (k) { return pressedKeys[k]; })
+      .forEach(function (k) { performKey("up", k); });
+  }
 
-  document.addEventListener("keydown", function (e) {
-    performKey("down", mapKey(e));
-  });
+  function onMouseMove(e) { e.preventDefault(); }
+  function onDragStart(e) { e.preventDefault(); }
 
-  document.addEventListener("keyup", function (e) {
-    performKey("up", mapKey(e));
-  });
+  window.doom.startKeyCapture = function (s) {
+    slot = s;
+    active = true;
+    pressedKeys = {};
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("dragstart", onDragStart);
+  };
 
-  // Prevent drag/selection interference with gameplay
-  document.addEventListener("mousemove", function (e) { e.preventDefault(); });
-  document.addEventListener("dragstart", function (e) { e.preventDefault(); });
+  window.doom.stopKeyCapture = function () {
+    // Release all held keys
+    onVisibilityChange();
+    active = false;
+    slot = null;
+    document.removeEventListener("keydown", onKeyDown);
+    document.removeEventListener("keyup", onKeyUp);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("dragstart", onDragStart);
+  };
 })();

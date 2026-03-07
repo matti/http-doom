@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# E2E tests for http-doom multiplayer
-# Validates that two instances can discover each other, negotiate roles,
-# and both serve playable game sessions.
-#
-# Expects two player URLs:
-#   PLAYER1_URL  (default: http://player1:8080)
-#   PLAYER2_URL  (default: http://player2:8080)
+# E2E tests for http-doom multi-slot capacity
+# Fills all slots, verifies isolation, tests slot exhaustion and reuse.
 
-PLAYER1_URL="${PLAYER1_URL:-http://player1:8080}"
-PLAYER2_URL="${PLAYER2_URL:-http://player2:8080}"
+BASE_URL="${BASE_URL:-http://localhost:8080}"
 FAILURES=0
 TESTS=0
 
@@ -36,253 +30,154 @@ assert_http_ok() {
   fi
 }
 
-assert_response_contains() {
-  local desc="$1" url="$2" expected="$3"
-  local body
-  body=$(curl -s --max-time 5 "$url") || true
-  if echo "$body" | grep -q "$expected"; then
-    pass "$desc — contains '$expected'"
-  else
-    fail "$desc — missing '$expected' (got: $body)"
-  fi
-}
+echo "======================================="
+echo "  http-doom Multi-Slot Capacity Tests"
+echo "======================================="
 
-get_json_field() {
-  local url="$1" field="$2"
-  curl -s --max-time 5 "$url" | sed -n "s/.*\"${field}\":\"\{0,1\}\([^,\"}\{]*\)\"\{0,1\}.*/\1/p"
-}
-
-wait_for_server() {
-  local name="$1" url="$2" max_wait="${3:-60}"
-  echo "Waiting for $name at $url ..."
-  for i in $(seq 1 "$max_wait"); do
-    if curl -s -o /dev/null --max-time 2 "$url" 2>/dev/null; then
-      echo "$name ready after ${i}s"
-      return 0
-    fi
-    sleep 1
-  done
-  echo "ERROR: $name not ready after ${max_wait}s"
-  return 1
-}
-
-# ============================================================
-# Wait for both players to be reachable
-# ============================================================
-echo "===================================="
-echo "  http-doom Multiplayer E2E Tests"
-echo "===================================="
+# --- Wait for server ---
 echo ""
-
-wait_for_server "Player 1" "$PLAYER1_URL" 60
-wait_for_server "Player 2" "$PLAYER2_URL" 60
-
-# Give the game processes time to start up and produce frames
-sleep 5
-
-# ============================================================
-# Both players serve HTTP
-# ============================================================
-echo ""
-echo "=== Both Players Serve HTTP ==="
-assert_http_ok "player1 index" "$PLAYER1_URL/"
-assert_http_ok "player2 index" "$PLAYER2_URL/"
-
-# ============================================================
-# Both players have the status endpoint
-# ============================================================
-echo ""
-echo "=== Status Endpoints ==="
-assert_http_ok "player1 /status" "$PLAYER1_URL/status"
-assert_http_ok "player2 /status" "$PLAYER2_URL/status"
-
-# ============================================================
-# Status reports multiplayer mode (not singleplayer)
-# ============================================================
-echo ""
-echo "=== Multiplayer Mode Active ==="
-p1_mode=$(get_json_field "$PLAYER1_URL/status" "mode")
-p2_mode=$(get_json_field "$PLAYER2_URL/status" "mode")
-echo "  Player 1 mode: $p1_mode"
-echo "  Player 2 mode: $p2_mode"
-
-# In explicit server/client mode, modes should be set immediately.
-# In auto mode, they start as "multiplayer" or "autodiscovery" and
-# transition to "server"/"client" after discovery completes.
-# Either way, mode should NOT be "singleplayer".
-if [ "$p1_mode" != "singleplayer" ] && [ -n "$p1_mode" ]; then
-  pass "player1 is not singleplayer (mode=$p1_mode)"
-else
-  fail "player1 mode is '$p1_mode', expected non-singleplayer"
-fi
-
-if [ "$p2_mode" != "singleplayer" ] && [ -n "$p2_mode" ]; then
-  pass "player2 is not singleplayer (mode=$p2_mode)"
-else
-  fail "player2 mode is '$p2_mode', expected non-singleplayer"
-fi
-
-# ============================================================
-# Wait for autodiscovery to complete (roles settle)
-# Poll until at least one player reports "server" or "client",
-# which indicates discovery has completed.
-# ============================================================
-echo ""
-echo "=== Autodiscovery Completes ==="
-discovery_done=false
+echo "Waiting for server at $BASE_URL ..."
 for i in $(seq 1 60); do
-  p1_mode=$(get_json_field "$PLAYER1_URL/status" "mode")
-  p2_mode=$(get_json_field "$PLAYER2_URL/status" "mode")
-
-  if [ "$p1_mode" = "server" ] || [ "$p1_mode" = "client" ]; then
-    if [ "$p2_mode" = "server" ] || [ "$p2_mode" = "client" ]; then
-      discovery_done=true
-      break
-    fi
+  if curl -s -o /dev/null --max-time 2 "$BASE_URL" 2>/dev/null; then
+    echo "Server ready after ${i}s"
+    break
   fi
-
-  if [ $((i % 10)) -eq 0 ]; then
-    echo "  Still waiting for discovery... (${i}s, p1=$p1_mode, p2=$p2_mode)"
+  if [ "$i" = "60" ]; then
+    echo "ERROR: Server not ready after 60s"
+    exit 1
   fi
   sleep 1
 done
 
-if [ "$discovery_done" = "true" ]; then
-  pass "autodiscovery completed (p1=$p1_mode, p2=$p2_mode)"
-else
-  fail "autodiscovery did not complete after 60s (p1=$p1_mode, p2=$p2_mode)"
-fi
+sleep 2
 
-# ============================================================
-# Exactly one server and one client
-# ============================================================
+# Get max_slots
+status_body=$(curl -s --max-time 5 "$BASE_URL/status")
+max_slots=$(echo "$status_body" | sed -n 's/.*"max_slots":\([0-9]*\).*/\1/p')
+echo "  max_slots: $max_slots"
+
+# --- Fill all slots ---
 echo ""
-echo "=== Role Assignment ==="
-p1_mode=$(get_json_field "$PLAYER1_URL/status" "mode")
-p2_mode=$(get_json_field "$PLAYER2_URL/status" "mode")
+echo "=== Fill All Slots ==="
+joined_slots=""
+for i in $(seq 1 "$max_slots"); do
+  response=$(curl -s --max-time 10 "$BASE_URL/join")
+  slot=$(echo "$response" | sed -n 's/.*"slot":\([0-9]*\).*/\1/p')
+  if [ -n "$slot" ] && [ "$slot" -ge 1 ]; then
+    pass "joined slot $slot ($i/$max_slots)"
+    joined_slots="$joined_slots $slot"
+  else
+    fail "failed to join slot $i (response: $response)"
+  fi
+  sleep 1
+done
 
-server_count=0
-client_count=0
-[ "$p1_mode" = "server" ] && server_count=$((server_count + 1))
-[ "$p2_mode" = "server" ] && server_count=$((server_count + 1))
-[ "$p1_mode" = "client" ] && client_count=$((client_count + 1))
-[ "$p2_mode" = "client" ] && client_count=$((client_count + 1))
+# Wait for all doom processes to start
+sleep 5
 
-if [ "$server_count" -eq 1 ]; then
-  pass "exactly one server"
-else
-  fail "expected 1 server, got $server_count (p1=$p1_mode, p2=$p2_mode)"
-fi
-
-if [ "$client_count" -eq 1 ]; then
-  pass "exactly one client"
-else
-  fail "expected 1 client, got $client_count (p1=$p1_mode, p2=$p2_mode)"
-fi
-
-# ============================================================
-# Lexicographic rule: lower hostname is server
-# ============================================================
+# --- Verify all slots active ---
 echo ""
-echo "=== Lexicographic Server Election ==="
-# player1 < player2 alphabetically, so player1 should be server
-if [ "$p1_mode" = "server" ]; then
-  pass "player1 (lower hostname) elected as server"
+echo "=== All Slots Active ==="
+status_body=$(curl -s --max-time 5 "$BASE_URL/status")
+active_count=$(echo "$status_body" | grep -o '"active":true' | wc -l)
+if [ "$active_count" -eq "$max_slots" ]; then
+  pass "all $max_slots slots active"
 else
-  fail "expected player1 as server (lexicographic rule), got p1=$p1_mode p2=$p2_mode"
+  fail "expected $max_slots active, got $active_count"
 fi
 
-# ============================================================
-# Both players serve frames
-# ============================================================
+# --- All slots serve independent frames ---
 echo ""
-echo "=== Frame Capture (Both Players) ==="
+echo "=== Slot Isolation (Frames) ==="
+for slot in $joined_slots; do
+  assert_http_ok "slot $slot serves frames" "$BASE_URL/player/$slot/screen/snapshot.jpg"
+done
 
-# Wait for frames to be produced (doom needs a moment after multiplayer connect)
+# --- All slots accept input ---
+echo ""
+echo "=== Slot Isolation (Input) ==="
+for slot in $joined_slots; do
+  assert_http_ok "slot $slot key input" "$BASE_URL/player/$slot/key/down/Up"
+  curl -s "$BASE_URL/player/$slot/key/up/Up" > /dev/null
+done
+
+# --- Slot exhaustion: next join should fail ---
+echo ""
+echo "=== Slot Exhaustion ==="
+exhaust_response=$(curl -s --max-time 5 "$BASE_URL/join")
+if echo "$exhaust_response" | grep -q '"error"'; then
+  pass "join correctly rejected when all slots full"
+else
+  fail "join should fail when full (response: $exhaust_response)"
+  # If it somehow got a slot, track it for cleanup
+  extra_slot=$(echo "$exhaust_response" | sed -n 's/.*"slot":\([0-9]*\).*/\1/p')
+  if [ -n "$extra_slot" ]; then
+    joined_slots="$joined_slots $extra_slot"
+  fi
+fi
+
+# --- Leave one slot ---
+echo ""
+echo "=== Leave and Reuse ==="
+first_slot=$(echo "$joined_slots" | awk '{print $1}')
+leave_response=$(curl -s --max-time 5 "$BASE_URL/leave/$first_slot")
+if echo "$leave_response" | grep -q '"ok":true'; then
+  pass "left slot $first_slot"
+else
+  fail "leave slot $first_slot failed"
+fi
+
+sleep 2
+
+# Slot should be free now
+status_body=$(curl -s --max-time 5 "$BASE_URL/status")
+slot_active=$(echo "$status_body" | sed -n "s/.*\"$first_slot\":{\"active\":\([a-z]*\).*/\1/p")
+if [ "$slot_active" = "false" ]; then
+  pass "slot $first_slot freed"
+else
+  fail "slot $first_slot not freed (active=$slot_active)"
+fi
+
+# Should be able to join again
+rejoin_response=$(curl -s --max-time 10 "$BASE_URL/join")
+rejoin_slot=$(echo "$rejoin_response" | sed -n 's/.*"slot":\([0-9]*\).*/\1/p')
+if [ -n "$rejoin_slot" ] && [ "$rejoin_slot" -ge 1 ]; then
+  pass "re-joined slot $rejoin_slot after freeing $first_slot"
+  joined_slots="$rejoin_slot $(echo "$joined_slots" | sed "s/$first_slot//")"
+else
+  fail "re-join failed after freeing slot"
+fi
+
 sleep 3
 
-for player_name in "player1" "player2"; do
-  if [ "$player_name" = "player1" ]; then
-    url="$PLAYER1_URL"
-  else
-    url="$PLAYER2_URL"
-  fi
-
-  status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url/screen/snapshot.jpg") || true
-  if [ "$status" = "200" ]; then
-    size=$(curl -s --max-time 5 "$url/screen/snapshot.jpg" | wc -c)
-    if [ "$size" -gt 0 ]; then
-      pass "$player_name serves frames (${size}B)"
-    else
-      fail "$player_name snapshot.jpg is empty"
-    fi
-  else
-    fail "$player_name snapshot.jpg — HTTP $status"
+# --- Cleanup: leave all slots ---
+echo ""
+echo "=== Cleanup ==="
+for slot in $joined_slots; do
+  slot=$(echo "$slot" | tr -d ' ')
+  if [ -n "$slot" ]; then
+    curl -s "$BASE_URL/leave/$slot" > /dev/null 2>&1 || true
   fi
 done
 
-# ============================================================
-# Both players accept key input
-# ============================================================
-echo ""
-echo "=== Key Input (Both Players) ==="
-assert_http_ok "player1 keydown" "$PLAYER1_URL/key/down/Up"
-assert_http_ok "player1 keyup" "$PLAYER1_URL/key/up/Up"
-assert_http_ok "player2 keydown" "$PLAYER2_URL/key/down/Up"
-assert_http_ok "player2 keyup" "$PLAYER2_URL/key/up/Up"
+sleep 2
 
-# ============================================================
-# Doom process is running on both
-# ============================================================
-echo ""
-echo "=== Doom Process Running ==="
-p1_running=$(get_json_field "$PLAYER1_URL/status" "doom_running")
-p2_running=$(get_json_field "$PLAYER2_URL/status" "doom_running")
-
-if [ "$p1_running" = "true" ]; then
-  pass "player1 doom is running"
+status_body=$(curl -s --max-time 5 "$BASE_URL/status")
+active_count=$(echo "$status_body" | grep -o '"active":true' | wc -l)
+if [ "$active_count" -eq 0 ]; then
+  pass "all slots freed after cleanup"
 else
-  fail "player1 doom is not running (doom_running=$p1_running)"
+  fail "expected 0 active after cleanup, got $active_count"
 fi
 
-if [ "$p2_running" = "true" ]; then
-  pass "player2 doom is running"
-else
-  fail "player2 doom is not running (doom_running=$p2_running)"
-fi
-
-# ============================================================
-# Peer discovery: each player knows about the other
-# ============================================================
+# --- Summary ---
 echo ""
-echo "=== Peer Visibility ==="
-p1_peers=$(get_json_field "$PLAYER1_URL/status" "peers")
-p2_peers=$(get_json_field "$PLAYER2_URL/status" "peers")
-echo "  Player 1 peers: $p1_peers"
-echo "  Player 2 peers: $p2_peers"
-
-if [ -n "$p1_peers" ]; then
-  pass "player1 has discovered peers"
-else
-  fail "player1 has no peers"
-fi
-
-if [ -n "$p2_peers" ]; then
-  pass "player2 has discovered peers"
-else
-  fail "player2 has no peers"
-fi
-
-# ============================================================
-# Summary
-# ============================================================
-echo ""
-echo "===================================="
+echo "======================================="
 PASSED=$((TESTS - FAILURES))
 echo "Results: $PASSED/$TESTS passed"
 if [ "$FAILURES" -gt 0 ]; then
   echo "$FAILURES test(s) FAILED"
   exit 1
 else
-  echo "All multiplayer tests passed!"
+  echo "All multi-slot tests passed!"
 fi

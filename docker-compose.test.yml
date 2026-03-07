@@ -10,8 +10,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 2s
       timeout: 5s
-      retries: 15
-      start_period: 5s
+      retries: 30
+      start_period: 10s
 
   e2e:
     image: alpine:3.20

@@ -8,11 +8,51 @@
     html, body {
       margin: 0;
       height: 100%;
-      background: #000 url('http-doom.png') no-repeat center center;
+      background: #000;
       color: #fff;
       font-family: monospace;
     }
 
+    /* --- Lobby --- */
+    #lobby {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 20px;
+    }
+    #lobby h1 { margin: 0; font-size: 24px; }
+    #slots { margin: 10px 0; }
+    .slot-indicator {
+      display: inline-block;
+      width: 18px; height: 18px;
+      margin: 0 4px;
+      border: 2px solid #666;
+      border-radius: 4px;
+    }
+    .slot-indicator.free { background: #2a2; border-color: #2a2; }
+    .slot-indicator.taken { background: #a22; border-color: #a22; }
+    #joinBtn {
+      font-size: 24px;
+      padding: 12px 48px;
+      cursor: pointer;
+      background: #c00;
+      color: #fff;
+      border: none;
+      font-family: monospace;
+      font-weight: bold;
+    }
+    #joinBtn:hover { background: #e00; }
+    #joinBtn:disabled { background: #666; cursor: not-allowed; }
+    #lobbyStatus { color: #888; font-size: 14px; }
+
+    /* --- Game --- */
+    #game {
+      display: none;
+      height: 100%;
+      background: #000 url('http-doom.png') no-repeat center center;
+    }
     #snapshot {
       display: block;
       margin: 0 auto;
@@ -20,7 +60,6 @@
       object-fit: cover;
       z-index: 1;
     }
-
     #settings {
       position: absolute;
       top: 0;
@@ -28,33 +67,45 @@
       padding: 8px;
       z-index: 2;
     }
-
     #settings input[type="button"] {
       cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <div id="settings">
-    <p><img src="http-doom.png" width="150" alt="HTTP Doom"></p>
-    <input id="resetBtn" type="button" value="RESET">
-    <p>Colorspace</p>
-    <input id="grayscaleBtn" type="button" value="Grayscale">
-    <input id="colorBtn" type="button" value="Color">
-    <p>Quality:</p>
-    <input id="quality15Btn" type="button" value="15">
-    <input id="quality25Btn" type="button" value="25">
-    <input id="quality50Btn" type="button" value="50">
-    <input id="quality75Btn" type="button" value="75">
-    <input id="quality100Btn" type="button" value="100">
-    <p>FPS: <span id="fps">0</span></p>
-    <p>Mode: <span id="mode">...</span></p>
+
+  <!-- Lobby View -->
+  <div id="lobby">
+    <img src="http-doom.png" width="200" alt="HTTP Doom">
+    <h1>HTTP DOOM</h1>
+    <div id="slots"></div>
+    <button id="joinBtn">JOIN</button>
+    <div id="lobbyStatus">Loading...</div>
   </div>
 
-  <img id="snapshot" alt="Game screen">
+  <!-- Game View (hidden until join) -->
+  <div id="game">
+    <div id="settings">
+      <p><img src="http-doom.png" width="100" alt="HTTP Doom"></p>
+      <input id="leaveBtn" type="button" value="LEAVE">
+      <input id="resetBtn" type="button" value="RESET">
+      <p>Colorspace</p>
+      <input id="grayscaleBtn" type="button" value="Grayscale">
+      <input id="colorBtn" type="button" value="Color">
+      <p>Quality:</p>
+      <input id="quality15Btn" type="button" value="15">
+      <input id="quality25Btn" type="button" value="25">
+      <input id="quality50Btn" type="button" value="50">
+      <input id="quality75Btn" type="button" value="75">
+      <input id="quality100Btn" type="button" value="100">
+      <p>Slot: <span id="slotNum">-</span> | FPS: <span id="fps">0</span></p>
+    </div>
+    <img id="snapshot" alt="Game screen">
+  </div>
 
-  <script src="javascript/settings.js"></script>
+  <script src="javascript/lobby.js"></script>
   <script src="javascript/load.js"></script>
   <script src="javascript/keys.js"></script>
+  <script src="javascript/settings.js"></script>
 </body>
 </html>

@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Manages doom + frame capture lifecycle for a single slot.
+# Usage: slot-ctl start <slot>   (blocks until stopped)
+#        slot-ctl stop <slot>
+
+MAX_SLOTS="${DOOM_MAX_SLOTS:-4}"
+SLOT_DIR="/app/slots"
+
+start_slot() {
+  local slot=$1
+  local display=":$slot"
+  local sd="$SLOT_DIR/$slot"
+  local screen_dir="/app/www/player/$slot/screen"
+  local fb_dir="/app/tmp/fb/$slot"
+
+  echo $$ > "$sd/ctl_pid"
+
+  cleanup() {
+    kill $(jobs -p) 2>/dev/null || true
+    wait 2>/dev/null || true
+    echo "0" > "$sd/active"
+    rm -f "$sd/ctl_pid" "$sd/doom_pid"
+  }
+  trap cleanup EXIT TERM INT
+
+  # Frame capture loop
+  (
+    while true; do
+      cp "$fb_dir/Xvfb_screen0" "$sd/snapshot.xwd" 2>/dev/null || true
+      nice -n 19 convert \
+        -colorspace "$(cat "$sd/colorspace" 2>/dev/null || echo RGB)" \
+        -quality "$(cat "$sd/quality" 2>/dev/null || echo 50)" \
+        "$sd/snapshot.xwd" "$sd/snapshot.jpg" 2>/dev/null || true
+      mv "$sd/snapshot.jpg" "$screen_dir/snapshot.jpg" 2>/dev/null || true
+      sleep 0.028
+    done
+  ) &
+
+  # Doom restart loop — keeps restarting until slot is deactivated
+  while [ "$(cat "$sd/active" 2>/dev/null)" = "1" ]; do
+    local config_dir="$sd/doom-home/.local/share/chocolate-doom"
+    mkdir -p "$config_dir"
+    cp /app/chocolate-doom.cfg "$config_dir/"
+    HOME="$sd/doom-home" DISPLAY="$display" chocolate-doom \
+      -nosound -window -geometry 320x240 -iwad /app/doom1.wad &
+    echo $! > "$sd/doom_pid"
+    wait $! || true
+    rm -f "$sd/doom_pid"
+    # Brief pause before restart to avoid tight loops
+    sleep 0.5
+  done
+}
+
+stop_slot() {
+  local slot=$1
+  local sd="$SLOT_DIR/$slot"
+
+  # Mark inactive so the doom loop exits
+  echo "0" > "$sd/active"
+
+  # Kill the doom process
+  if [ -f "$sd/doom_pid" ]; then
+    kill -9 "$(cat "$sd/doom_pid")" 2>/dev/null || true
+    rm -f "$sd/doom_pid"
+  fi
+
+  # Kill the slot-ctl process (which cleans up capture via trap)
+  if [ -f "$sd/ctl_pid" ]; then
+    local ctl_pid
+    ctl_pid=$(cat "$sd/ctl_pid")
+    kill -TERM "$ctl_pid" 2>/dev/null || true
+    rm -f "$sd/ctl_pid"
+  fi
+
+  # Reset settings
+  echo "RGB" > "$sd/colorspace"
+  echo "50" > "$sd/quality"
+}
+
+case "${1:-}" in
+  start)
+    start_slot "$2"
+    ;;
+  stop)
+    stop_slot "$2"
+    ;;
+  *)
+    echo "Usage: slot-ctl {start|stop} <slot>"
+    exit 1
+    ;;
+esac

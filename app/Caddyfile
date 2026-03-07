@@ -6,19 +6,25 @@
 	root * /app/www
 	file_server
 
-	cgi /key/down/* /app/keys {
-		script_name /key/down
+	cgi /join /app/join {
+		script_name /join
 	}
-	cgi /key/up/* /app/keys {
-		script_name /key/up
-	}
-	cgi /reset /app/reset {
-		script_name /reset
-	}
-	cgi /config/* /app/config {
-		script_name /config
+	cgi /leave/* /app/leave {
+		script_name /leave
 	}
 	cgi /status /app/status {
 		script_name /status
+	}
+	cgi /player/*/key/* /app/player {
+		script_name /player
+	}
+	cgi /player/*/reset /app/player {
+		script_name /player
+	}
+	cgi /player/*/config/* /app/player {
+		script_name /player
+	}
+	cgi /player/*/heartbeat /app/player {
+		script_name /player
 	}
 }

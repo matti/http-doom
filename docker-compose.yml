@@ -4,5 +4,7 @@ services:
     image: ${IMAGE:-http-doom}
     environment:
       - PORT=8080
+      - DOOM_MAX_SLOTS=${DOOM_MAX_SLOTS:-4}
+      - DOOM_IDLE_TIMEOUT=${DOOM_IDLE_TIMEOUT:-300}
     ports:
       - "8080:8080"
