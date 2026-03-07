@@ -2,11 +2,14 @@
 set -euo pipefail
 
 # E2E tests for http-doom multi-slot capacity
-# Fills all slots, verifies isolation, tests slot exhaustion and reuse.
+# Fills all slots, verifies isolation with image assertions, tests exhaustion and reuse.
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
+TMPDIR="${TMPDIR:-/tmp}/doom-e2e-multi"
 FAILURES=0
 TESTS=0
+
+mkdir -p "$TMPDIR"
 
 pass() {
   TESTS=$((TESTS + 1))
@@ -28,6 +31,40 @@ assert_http_ok() {
   else
     fail "$desc — expected 200, got $status"
   fi
+}
+
+fetch_snapshot() {
+  local slot="$1" dest="$2"
+  curl -s --max-time 5 -o "$dest" "$BASE_URL/player/$slot/screen/snapshot.jpg"
+}
+
+assert_valid_jpeg() {
+  local desc="$1" file="$2"
+  local info
+  if ! info=$(identify "$file" 2>&1); then
+    fail "$desc — not a valid image (identify failed: $info)"
+    return
+  fi
+  if echo "$info" | grep -qi "jpeg"; then
+    pass "$desc — valid JPEG"
+  else
+    fail "$desc — not JPEG format (got: $info)"
+  fi
+}
+
+assert_image_dimensions() {
+  local desc="$1" file="$2" expected_w="$3" expected_h="$4"
+  local dimensions
+  dimensions=$(identify -format "%wx%h" "$file" 2>/dev/null) || true
+  if [ "$dimensions" = "${expected_w}x${expected_h}" ]; then
+    pass "$desc — dimensions ${dimensions}"
+  else
+    fail "$desc — expected ${expected_w}x${expected_h}, got ${dimensions}"
+  fi
+}
+
+file_checksum() {
+  md5sum "$1" 2>/dev/null | cut -d' ' -f1
 }
 
 echo "======================================="
@@ -72,8 +109,8 @@ for i in $(seq 1 "$max_slots"); do
   sleep 1
 done
 
-# Wait for all doom processes to start
-sleep 5
+# Wait for all doom processes to start and produce frames
+sleep 8
 
 # --- Verify all slots active ---
 echo ""
@@ -86,20 +123,130 @@ else
   fail "expected $max_slots active, got $active_count"
 fi
 
-# --- All slots serve independent frames ---
+# --- All slots serve valid JPEG frames at 320x240 ---
 echo ""
-echo "=== Slot Isolation (Frames) ==="
+echo "=== All Slots: Image Validation ==="
 for slot in $joined_slots; do
-  assert_http_ok "slot $slot serves frames" "$BASE_URL/player/$slot/screen/snapshot.jpg"
+  fetch_snapshot "$slot" "$TMPDIR/slot${slot}.jpg"
+  assert_valid_jpeg "slot $slot" "$TMPDIR/slot${slot}.jpg"
+  assert_image_dimensions "slot $slot" "$TMPDIR/slot${slot}.jpg" 320 240
+  size=$(wc -c < "$TMPDIR/slot${slot}.jpg")
+  if [ "$size" -gt 1000 ]; then
+    pass "slot $slot has substantial frame (${size}B)"
+  else
+    fail "slot $slot frame too small (${size}B)"
+  fi
 done
 
-# --- All slots accept input ---
+# --- Slot isolation: per-slot colorspace ---
+echo ""
+echo "=== Slot Isolation: Colorspace ==="
+# Set odd slots to Gray, even to RGB
+for slot in $joined_slots; do
+  if [ $((slot % 2)) -eq 1 ]; then
+    curl -s "$BASE_URL/player/$slot/config/colorspace?Gray" > /dev/null
+  else
+    curl -s "$BASE_URL/player/$slot/config/colorspace?RGB" > /dev/null
+  fi
+done
+sleep 1
+
+for slot in $joined_slots; do
+  fetch_snapshot "$slot" "$TMPDIR/cs_slot${slot}.jpg"
+  cs=$(identify -format "%[colorspace]" "$TMPDIR/cs_slot${slot}.jpg" 2>/dev/null) || true
+  if [ $((slot % 2)) -eq 1 ]; then
+    if echo "$cs" | grep -qi "Gray"; then
+      pass "slot $slot colorspace is Gray (as configured)"
+    else
+      fail "slot $slot expected Gray, got $cs"
+    fi
+  else
+    if echo "$cs" | grep -qi "sRGB"; then
+      pass "slot $slot colorspace is sRGB (as configured)"
+    else
+      fail "slot $slot expected sRGB, got $cs"
+    fi
+  fi
+done
+
+# Reset all colorspaces
+for slot in $joined_slots; do
+  curl -s "$BASE_URL/player/$slot/config/colorspace?RGB" > /dev/null
+done
+
+# --- Slot isolation: per-slot quality ---
+echo ""
+echo "=== Slot Isolation: Quality ==="
+# Set first slot to quality 15, last slot to quality 100
+slot_list=($joined_slots)
+first_slot="${slot_list[0]}"
+last_slot="${slot_list[${#slot_list[@]}-1]}"
+
+curl -s "$BASE_URL/player/$first_slot/config/quality?15" > /dev/null
+curl -s "$BASE_URL/player/$last_slot/config/quality?100" > /dev/null
+sleep 1
+
+fetch_snapshot "$first_slot" "$TMPDIR/q_low.jpg"
+fetch_snapshot "$last_slot" "$TMPDIR/q_high.jpg"
+low_size=$(wc -c < "$TMPDIR/q_low.jpg")
+high_size=$(wc -c < "$TMPDIR/q_high.jpg")
+echo "  slot $first_slot (q=15): ${low_size}B, slot $last_slot (q=100): ${high_size}B"
+if [ "$high_size" -gt "$low_size" ]; then
+  pass "quality isolation: high quality (${high_size}B) > low quality (${low_size}B)"
+else
+  fail "quality isolation: expected high > low, got ${high_size}B vs ${low_size}B"
+fi
+
+# Reset quality
+curl -s "$BASE_URL/player/$first_slot/config/quality?50" > /dev/null
+curl -s "$BASE_URL/player/$last_slot/config/quality?50" > /dev/null
+
+# --- All slots accept input independently ---
 echo ""
 echo "=== Slot Isolation (Input) ==="
 for slot in $joined_slots; do
   assert_http_ok "slot $slot key input" "$BASE_URL/player/$slot/key/down/Up"
   curl -s "$BASE_URL/player/$slot/key/up/Up" > /dev/null
 done
+
+# --- Frames update after input ---
+echo ""
+echo "=== Frames Update After Input ==="
+# Pick the first slot for this test
+test_slot="${slot_list[0]}"
+fetch_snapshot "$test_slot" "$TMPDIR/before_input.jpg"
+before_hash=$(file_checksum "$TMPDIR/before_input.jpg")
+
+# Send a sequence of inputs to cause visual change
+curl -s "$BASE_URL/player/$test_slot/key/down/Return" > /dev/null
+sleep 0.3
+curl -s "$BASE_URL/player/$test_slot/key/up/Return" > /dev/null
+sleep 1
+curl -s "$BASE_URL/player/$test_slot/key/down/Up" > /dev/null
+sleep 0.3
+curl -s "$BASE_URL/player/$test_slot/key/up/Up" > /dev/null
+sleep 1
+
+fetch_snapshot "$test_slot" "$TMPDIR/after_input.jpg"
+after_hash=$(file_checksum "$TMPDIR/after_input.jpg")
+assert_valid_jpeg "frame after input" "$TMPDIR/after_input.jpg"
+
+if [ "$before_hash" != "$after_hash" ]; then
+  pass "frame changed after input"
+else
+  # Try once more with different input
+  curl -s "$BASE_URL/player/$test_slot/key/down/space" > /dev/null
+  sleep 0.3
+  curl -s "$BASE_URL/player/$test_slot/key/up/space" > /dev/null
+  sleep 1
+  fetch_snapshot "$test_slot" "$TMPDIR/after_input2.jpg"
+  after_hash2=$(file_checksum "$TMPDIR/after_input2.jpg")
+  if [ "$before_hash" != "$after_hash2" ]; then
+    pass "frame changed after second input attempt"
+  else
+    fail "frame unchanged after input (hash=$before_hash)"
+  fi
+fi
 
 # --- Slot exhaustion: next join should fail ---
 echo ""
@@ -109,46 +256,63 @@ if echo "$exhaust_response" | grep -q '"error"'; then
   pass "join correctly rejected when all slots full"
 else
   fail "join should fail when full (response: $exhaust_response)"
-  # If it somehow got a slot, track it for cleanup
   extra_slot=$(echo "$exhaust_response" | sed -n 's/.*"slot":\([0-9]*\).*/\1/p')
   if [ -n "$extra_slot" ]; then
     joined_slots="$joined_slots $extra_slot"
   fi
 fi
 
-# --- Leave one slot ---
+# --- Leave one slot, verify frames stop, rejoin and verify frames restart ---
 echo ""
-echo "=== Leave and Reuse ==="
-first_slot=$(echo "$joined_slots" | awk '{print $1}')
-leave_response=$(curl -s --max-time 5 "$BASE_URL/leave/$first_slot")
+echo "=== Leave, Verify, Rejoin ==="
+leave_slot="${slot_list[0]}"
+leave_response=$(curl -s --max-time 5 "$BASE_URL/leave/$leave_slot")
 if echo "$leave_response" | grep -q '"ok":true'; then
-  pass "left slot $first_slot"
+  pass "left slot $leave_slot"
 else
-  fail "leave slot $first_slot failed"
+  fail "leave slot $leave_slot failed"
 fi
 
 sleep 2
 
-# Slot should be free now
+# Slot should be free
 status_body=$(curl -s --max-time 5 "$BASE_URL/status")
-slot_active=$(echo "$status_body" | sed -n "s/.*\"$first_slot\":{\"active\":\([a-z]*\).*/\1/p")
+slot_active=$(echo "$status_body" | sed -n "s/.*\"$leave_slot\":{\"active\":\([a-z]*\).*/\1/p")
 if [ "$slot_active" = "false" ]; then
-  pass "slot $first_slot freed"
+  pass "slot $leave_slot freed"
 else
-  fail "slot $first_slot not freed (active=$slot_active)"
+  fail "slot $leave_slot not freed (active=$slot_active)"
 fi
 
-# Should be able to join again
+# Other slots should still be active and serving frames
+remaining_slot="${slot_list[1]}"
+fetch_snapshot "$remaining_slot" "$TMPDIR/remaining.jpg"
+assert_valid_jpeg "remaining slot $remaining_slot still serves frames" "$TMPDIR/remaining.jpg"
+
+# Rejoin — should get a slot
 rejoin_response=$(curl -s --max-time 10 "$BASE_URL/join")
 rejoin_slot=$(echo "$rejoin_response" | sed -n 's/.*"slot":\([0-9]*\).*/\1/p')
 if [ -n "$rejoin_slot" ] && [ "$rejoin_slot" -ge 1 ]; then
-  pass "re-joined slot $rejoin_slot after freeing $first_slot"
-  joined_slots="$rejoin_slot $(echo "$joined_slots" | sed "s/$first_slot//")"
+  pass "re-joined slot $rejoin_slot after freeing $leave_slot"
+  joined_slots="$rejoin_slot $(echo "$joined_slots" | sed "s/$leave_slot//")"
 else
   fail "re-join failed after freeing slot"
 fi
 
-sleep 3
+sleep 5
+
+# Verify re-joined slot serves valid frames
+if [ -n "$rejoin_slot" ] && [ "$rejoin_slot" -ge 1 ]; then
+  fetch_snapshot "$rejoin_slot" "$TMPDIR/rejoin.jpg"
+  assert_valid_jpeg "re-joined slot $rejoin_slot frame" "$TMPDIR/rejoin.jpg"
+  assert_image_dimensions "re-joined slot dimensions" "$TMPDIR/rejoin.jpg" 320 240
+  rejoin_size=$(wc -c < "$TMPDIR/rejoin.jpg")
+  if [ "$rejoin_size" -gt 1000 ]; then
+    pass "re-joined slot has substantial frame (${rejoin_size}B)"
+  else
+    fail "re-joined slot frame too small (${rejoin_size}B)"
+  fi
+fi
 
 # --- Cleanup: leave all slots ---
 echo ""
@@ -169,6 +333,8 @@ if [ "$active_count" -eq 0 ]; then
 else
   fail "expected 0 active after cleanup, got $active_count"
 fi
+
+rm -rf "$TMPDIR"
 
 # --- Summary ---
 echo ""

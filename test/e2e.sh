@@ -3,10 +3,14 @@ set -euo pipefail
 
 # E2E tests for http-doom (multi-slot architecture)
 # Tests the full lifecycle: lobby → join → play → leave → re-join
+# Includes image validation: JPEG format, dimensions, frames updating, config effects
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
+TMPDIR="${TMPDIR:-/tmp}/doom-e2e"
 FAILURES=0
 TESTS=0
+
+mkdir -p "$TMPDIR"
 
 pass() {
   TESTS=$((TESTS + 1))
@@ -58,6 +62,61 @@ assert_response_contains() {
   else
     fail "$desc — missing '$expected' (got: $body)"
   fi
+}
+
+# Download a snapshot to a file and return the path
+fetch_snapshot() {
+  local slot="$1" dest="$2"
+  curl -s --max-time 5 -o "$dest" "$BASE_URL/player/$slot/screen/snapshot.jpg"
+}
+
+# Assert file is a valid JPEG using ImageMagick identify
+assert_valid_jpeg() {
+  local desc="$1" file="$2"
+  local info
+  if ! info=$(identify "$file" 2>&1); then
+    fail "$desc — not a valid image (identify failed: $info)"
+    return
+  fi
+  if echo "$info" | grep -qi "jpeg"; then
+    pass "$desc — valid JPEG"
+  else
+    fail "$desc — not JPEG format (got: $info)"
+  fi
+}
+
+# Assert image dimensions are WxH
+assert_image_dimensions() {
+  local desc="$1" file="$2" expected_w="$3" expected_h="$4"
+  local dimensions
+  dimensions=$(identify -format "%wx%h" "$file" 2>/dev/null) || true
+  if [ "$dimensions" = "${expected_w}x${expected_h}" ]; then
+    pass "$desc — dimensions ${dimensions}"
+  else
+    fail "$desc — expected ${expected_w}x${expected_h}, got ${dimensions}"
+  fi
+}
+
+# Assert image colorspace
+assert_image_colorspace() {
+  local desc="$1" file="$2" expected="$3"
+  local cs
+  cs=$(identify -format "%[colorspace]" "$file" 2>/dev/null) || true
+  if echo "$cs" | grep -qi "$expected"; then
+    pass "$desc — colorspace $cs"
+  else
+    fail "$desc — expected colorspace $expected, got $cs"
+  fi
+}
+
+# Get JPEG quality from identify
+get_image_quality() {
+  identify -format "%Q" "$1" 2>/dev/null || echo "0"
+}
+
+# Get MD5 checksum of a file
+file_checksum() {
+  md5sum "$1" 2>/dev/null | cut -d' ' -f1
 }
 
 # --- Wait for server ---
@@ -135,18 +194,53 @@ else
   fail "no active slots after join"
 fi
 
-# --- Frame capture ---
+# --- Frame capture: basic ---
 echo ""
 echo "=== Frame Capture ==="
 assert_http_ok_with_content_type "snapshot.jpg" "$BASE_URL/player/$slot1/screen/snapshot.jpg" "image/jpeg"
 
-size1=$(curl -s --max-time 5 "$BASE_URL/player/$slot1/screen/snapshot.jpg" | wc -c)
-sleep 0.5
-size2=$(curl -s --max-time 5 "$BASE_URL/player/$slot1/screen/snapshot.jpg" | wc -c)
-if [ "$size1" -gt 0 ] && [ "$size2" -gt 0 ]; then
-  pass "snapshot.jpg has content (${size1}B, ${size2}B)"
+# --- Image validation: valid JPEG ---
+echo ""
+echo "=== Image Validation ==="
+fetch_snapshot "$slot1" "$TMPDIR/frame1.jpg"
+assert_valid_jpeg "snapshot is valid JPEG" "$TMPDIR/frame1.jpg"
+assert_image_dimensions "snapshot dimensions" "$TMPDIR/frame1.jpg" 320 240
+
+size1=$(wc -c < "$TMPDIR/frame1.jpg")
+if [ "$size1" -gt 1000 ]; then
+  pass "snapshot has substantial content (${size1}B)"
 else
-  fail "snapshot.jpg is empty"
+  fail "snapshot too small (${size1}B) — likely blank or corrupt"
+fi
+
+# --- Frames are updating (different checksums over time) ---
+echo ""
+echo "=== Frames Updating ==="
+hash1=$(file_checksum "$TMPDIR/frame1.jpg")
+
+# Send some key input to cause screen changes, then grab another frame
+curl -s "$BASE_URL/player/$slot1/key/down/Return" > /dev/null
+sleep 0.3
+curl -s "$BASE_URL/player/$slot1/key/up/Return" > /dev/null
+sleep 1
+fetch_snapshot "$slot1" "$TMPDIR/frame2.jpg"
+hash2=$(file_checksum "$TMPDIR/frame2.jpg")
+assert_valid_jpeg "second frame is valid JPEG" "$TMPDIR/frame2.jpg"
+
+# Try a third frame with more input
+curl -s "$BASE_URL/player/$slot1/key/down/Up" > /dev/null
+sleep 0.3
+curl -s "$BASE_URL/player/$slot1/key/up/Up" > /dev/null
+sleep 1
+fetch_snapshot "$slot1" "$TMPDIR/frame3.jpg"
+hash3=$(file_checksum "$TMPDIR/frame3.jpg")
+
+# At least 2 of the 3 frames should differ (doom title screen may be static initially)
+unique_hashes=$(printf "%s\n%s\n%s\n" "$hash1" "$hash2" "$hash3" | sort -u | wc -l)
+if [ "$unique_hashes" -ge 2 ]; then
+  pass "frames are updating ($unique_hashes unique frames out of 3)"
+else
+  fail "all 3 frames identical (hash=$hash1) — capture may be stuck"
 fi
 
 # --- Key input ---
@@ -157,13 +251,60 @@ assert_http_ok "keyup" "$BASE_URL/player/$slot1/key/up/Up"
 assert_http_ok "keydown space" "$BASE_URL/player/$slot1/key/down/space"
 assert_http_ok "keyup space" "$BASE_URL/player/$slot1/key/up/space"
 
-# --- Config ---
+# --- Config: colorspace changes image ---
 echo ""
-echo "=== Config ==="
-assert_http_ok "set quality" "$BASE_URL/player/$slot1/config/quality?50"
-assert_http_ok "set colorspace RGB" "$BASE_URL/player/$slot1/config/colorspace?RGB"
-assert_http_ok "set colorspace Gray" "$BASE_URL/player/$slot1/config/colorspace?Gray"
+echo "=== Config: Colorspace ==="
+# Set to RGB first, capture
 curl -s "$BASE_URL/player/$slot1/config/colorspace?RGB" > /dev/null
+sleep 1
+fetch_snapshot "$slot1" "$TMPDIR/rgb.jpg"
+assert_valid_jpeg "RGB frame" "$TMPDIR/rgb.jpg"
+assert_image_colorspace "RGB frame" "$TMPDIR/rgb.jpg" "sRGB"
+
+# Switch to grayscale, capture
+curl -s "$BASE_URL/player/$slot1/config/colorspace?Gray" > /dev/null
+sleep 1
+fetch_snapshot "$slot1" "$TMPDIR/gray.jpg"
+assert_valid_jpeg "Gray frame" "$TMPDIR/gray.jpg"
+assert_image_colorspace "Gray frame" "$TMPDIR/gray.jpg" "Gray"
+
+# Verify they're actually different
+rgb_hash=$(file_checksum "$TMPDIR/rgb.jpg")
+gray_hash=$(file_checksum "$TMPDIR/gray.jpg")
+if [ "$rgb_hash" != "$gray_hash" ]; then
+  pass "colorspace change produces different image"
+else
+  fail "RGB and Gray frames are identical"
+fi
+
+# Reset back to RGB
+curl -s "$BASE_URL/player/$slot1/config/colorspace?RGB" > /dev/null
+
+# --- Config: quality changes file size ---
+echo ""
+echo "=== Config: Quality ==="
+curl -s "$BASE_URL/player/$slot1/config/quality?15" > /dev/null
+sleep 1
+fetch_snapshot "$slot1" "$TMPDIR/q15.jpg"
+assert_valid_jpeg "quality 15 frame" "$TMPDIR/q15.jpg"
+q15_size=$(wc -c < "$TMPDIR/q15.jpg")
+q15_quality=$(get_image_quality "$TMPDIR/q15.jpg")
+
+curl -s "$BASE_URL/player/$slot1/config/quality?100" > /dev/null
+sleep 1
+fetch_snapshot "$slot1" "$TMPDIR/q100.jpg"
+assert_valid_jpeg "quality 100 frame" "$TMPDIR/q100.jpg"
+q100_size=$(wc -c < "$TMPDIR/q100.jpg")
+q100_quality=$(get_image_quality "$TMPDIR/q100.jpg")
+
+echo "  quality 15: ${q15_size}B (Q=${q15_quality}), quality 100: ${q100_size}B (Q=${q100_quality})"
+if [ "$q100_size" -gt "$q15_size" ]; then
+  pass "higher quality produces larger file (${q15_size}B < ${q100_size}B)"
+else
+  fail "quality 100 (${q100_size}B) should be larger than quality 15 (${q15_size}B)"
+fi
+
+# Reset quality
 curl -s "$BASE_URL/player/$slot1/config/quality?50" > /dev/null
 
 # --- Heartbeat ---
@@ -171,14 +312,22 @@ echo ""
 echo "=== Heartbeat ==="
 assert_http_ok "heartbeat" "$BASE_URL/player/$slot1/heartbeat"
 
-# --- Reset (game restarts) ---
+# --- Reset: game restarts, frames still valid ---
 echo ""
 echo "=== Reset ==="
 assert_http_ok "reset game" "$BASE_URL/player/$slot1/reset"
-sleep 3
-assert_http_ok "snapshot after reset" "$BASE_URL/player/$slot1/screen/snapshot.jpg"
+sleep 4
+fetch_snapshot "$slot1" "$TMPDIR/after_reset.jpg"
+assert_valid_jpeg "frame after reset" "$TMPDIR/after_reset.jpg"
+assert_image_dimensions "frame after reset dimensions" "$TMPDIR/after_reset.jpg" 320 240
+post_reset_size=$(wc -c < "$TMPDIR/after_reset.jpg")
+if [ "$post_reset_size" -gt 1000 ]; then
+  pass "frame after reset has content (${post_reset_size}B)"
+else
+  fail "frame after reset too small (${post_reset_size}B)"
+fi
 
-# --- Multi-Slot: join a second slot ---
+# --- Multi-Slot: join second slot, verify isolation ---
 echo ""
 echo "=== Multi-Slot ==="
 join2_response=$(curl -s --max-time 10 "$BASE_URL/join")
@@ -190,11 +339,42 @@ else
   fail "second join failed or same slot (response: $join2_response)"
 fi
 
-sleep 3
+sleep 5
 
 if [ -n "$slot2" ] && [ "$slot2" -ge 1 ]; then
-  assert_http_ok "slot1 still serves frames" "$BASE_URL/player/$slot1/screen/snapshot.jpg"
-  assert_http_ok "slot2 serves frames" "$BASE_URL/player/$slot2/screen/snapshot.jpg"
+  # Both slots serve valid frames
+  fetch_snapshot "$slot1" "$TMPDIR/slot1.jpg"
+  fetch_snapshot "$slot2" "$TMPDIR/slot2.jpg"
+
+  assert_valid_jpeg "slot $slot1 frame" "$TMPDIR/slot1.jpg"
+  assert_valid_jpeg "slot $slot2 frame" "$TMPDIR/slot2.jpg"
+  assert_image_dimensions "slot $slot1 dimensions" "$TMPDIR/slot1.jpg" 320 240
+  assert_image_dimensions "slot $slot2 dimensions" "$TMPDIR/slot2.jpg" 320 240
+
+  s1_size=$(wc -c < "$TMPDIR/slot1.jpg")
+  s2_size=$(wc -c < "$TMPDIR/slot2.jpg")
+  if [ "$s1_size" -gt 1000 ] && [ "$s2_size" -gt 1000 ]; then
+    pass "both slots have substantial frames (${s1_size}B, ${s2_size}B)"
+  else
+    fail "one or both slots have tiny frames (${s1_size}B, ${s2_size}B)"
+  fi
+
+  # Slot isolation: set one slot to grayscale, the other stays RGB
+  curl -s "$BASE_URL/player/$slot1/config/colorspace?Gray" > /dev/null
+  curl -s "$BASE_URL/player/$slot2/config/colorspace?RGB" > /dev/null
+  sleep 1
+  fetch_snapshot "$slot1" "$TMPDIR/iso_slot1.jpg"
+  fetch_snapshot "$slot2" "$TMPDIR/iso_slot2.jpg"
+
+  s1_cs=$(identify -format "%[colorspace]" "$TMPDIR/iso_slot1.jpg" 2>/dev/null) || true
+  s2_cs=$(identify -format "%[colorspace]" "$TMPDIR/iso_slot2.jpg" 2>/dev/null) || true
+  if echo "$s1_cs" | grep -qi "Gray" && echo "$s2_cs" | grep -qi "sRGB"; then
+    pass "slot isolation: slot $slot1 is Gray, slot $slot2 is sRGB"
+  else
+    fail "slot isolation: expected Gray/sRGB, got $s1_cs/$s2_cs"
+  fi
+  # Reset
+  curl -s "$BASE_URL/player/$slot1/config/colorspace?RGB" > /dev/null
 
   status_body=$(curl -s --max-time 5 "$BASE_URL/status")
   active_count=$(echo "$status_body" | grep -o '"active":true' | wc -l)
@@ -238,10 +418,20 @@ rejoin_response=$(curl -s --max-time 10 "$BASE_URL/join")
 rejoin_slot=$(echo "$rejoin_response" | sed -n 's/.*"slot":\([0-9]*\).*/\1/p')
 if [ -n "$rejoin_slot" ] && [ "$rejoin_slot" -ge 1 ]; then
   pass "re-joined slot $rejoin_slot after leaving"
+
+  # Verify the re-joined slot serves valid frames
+  sleep 4
+  fetch_snapshot "$rejoin_slot" "$TMPDIR/rejoin.jpg"
+  assert_valid_jpeg "re-joined slot frame" "$TMPDIR/rejoin.jpg"
+  assert_image_dimensions "re-joined slot dimensions" "$TMPDIR/rejoin.jpg" 320 240
+
   curl -s "$BASE_URL/leave/$rejoin_slot" > /dev/null
 else
   fail "re-join failed"
 fi
+
+# --- Cleanup ---
+rm -rf "$TMPDIR"
 
 # --- Summary ---
 echo ""
