@@ -2,21 +2,23 @@
 set -euo pipefail
 
 # Multiplayer autodiscovery for http-doom
-# Uses UDP broadcast to find peers on the local network.
+# Uses UDP broadcast/multicast to find peers on the local network.
 #
 # Protocol:
-#   - Each instance broadcasts "HTTPDOOM:<hostname>:<doom_port>" on UDP 2399
+#   - Each instance broadcasts "HTTPDOOM:<hostname>:<doom_port>" via UDP
 #   - Instances listen for peer announcements
 #   - The lexicographically lowest hostname becomes the server
 #   - Other instances connect as clients
 #
 # Environment variables:
-#   DOOM_PORT      - UDP port for doom multiplayer traffic (default: 2342)
-#   DISCOVER_PORT  - UDP port for discovery broadcasts (default: 2399)
-#   DOOM_HOSTNAME  - Hostname to announce (default: $(hostname))
-#   DOOM_MODE      - Force mode: "server", "client:<address>", or "auto" (default: auto)
-#   DOOM_PLAYERS   - Number of players to wait for (default: 2)
-#   DOOM_SKILL     - Difficulty 1-5 (default: 3)
+#   DOOM_PORT       - UDP port for doom multiplayer traffic (default: 2342)
+#   DISCOVER_PORT   - UDP port for discovery broadcasts (default: 2399)
+#   DOOM_HOSTNAME   - Hostname to announce (default: $(hostname))
+#   DOOM_MODE       - Force mode: "server", "client:<address>", or "auto" (default: auto)
+#   DOOM_PLAYERS    - Number of players to wait for (default: 2)
+#   DOOM_PEERS      - Comma-separated list of peer hostnames for directed discovery
+#                     (fallback when broadcast doesn't work, e.g. Docker networks)
+#   DOOM_SKILL      - Difficulty 1-5 (default: 3)
 #   DOOM_DEATHMATCH - Set to "1" for deathmatch, empty for coop (default: empty)
 
 DOOM_PORT="${DOOM_PORT:-2342}"
@@ -24,6 +26,7 @@ DISCOVER_PORT="${DISCOVER_PORT:-2399}"
 DOOM_HOSTNAME="${DOOM_HOSTNAME:-$(hostname)}"
 DOOM_MODE="${DOOM_MODE:-auto}"
 DOOM_PLAYERS="${DOOM_PLAYERS:-2}"
+DOOM_PEERS="${DOOM_PEERS:-}"
 PEERS_FILE="/app/tmp/peers.txt"
 ROLE_FILE="/app/tmp/role.txt"
 
@@ -37,9 +40,21 @@ echo "waiting" > "$ROLE_FILE"
 
 # Broadcast our presence every 2 seconds
 broadcast_presence() {
+  local msg="HTTPDOOM:${DOOM_HOSTNAME}:${DOOM_PORT}"
   while true; do
-    echo "HTTPDOOM:${DOOM_HOSTNAME}:${DOOM_PORT}" | \
+    # Try subnet broadcast (works on Docker bridge networks)
+    echo "$msg" | \
       socat - UDP-DATAGRAM:255.255.255.255:${DISCOVER_PORT},broadcast,so-broadcast 2>/dev/null || true
+
+    # Also send directly to known peers if DOOM_PEERS is set
+    if [ -n "$DOOM_PEERS" ]; then
+      local IFS=","
+      for peer in $DOOM_PEERS; do
+        echo "$msg" | \
+          socat - UDP-SENDTO:"${peer}":${DISCOVER_PORT} 2>/dev/null || true
+      done
+    fi
+
     sleep 2
   done
 }
@@ -102,6 +117,9 @@ get_server_address() {
 # Returns: "server" or "client:<address>"
 run_discovery() {
   echo "Starting autodiscovery as ${DOOM_HOSTNAME} on port ${DISCOVER_PORT}..."
+  if [ -n "$DOOM_PEERS" ]; then
+    echo "Directed peers: ${DOOM_PEERS}"
+  fi
 
   broadcast_presence &
   local broadcast_pid=$!

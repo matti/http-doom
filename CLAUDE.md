@@ -26,9 +26,11 @@ Browser (JS polling) <--HTTP--> Caddy v2 (static + CGI) <--files/xdotool--> Xvfb
 ├── Dockerfile                    # Multi-stage build: xcaddy (Caddy+CGI) then Alpine runtime
 ├── docker-compose.yml            # Single-player dev compose
 ├── docker-compose.multiplayer.yml # 2-player multiplayer compose
-├── docker-compose.test.yml       # E2E test compose
+├── docker-compose.test.yml       # E2E test compose (single-player)
+├── docker-compose.test-multiplayer.yml # E2E test compose (multiplayer)
 ├── test/
-│   └── e2e.sh                    # E2E test suite (curl-based)
+│   ├── e2e.sh                    # E2E test suite (curl-based, single-player)
+│   └── e2e-multiplayer.sh        # E2E multiplayer test suite
 ├── app/
 │   ├── entrypoint.sh             # Orchestrates Xvfb, frame capture, Caddy, and Doom
 │   ├── discover.sh               # UDP autodiscovery for multiplayer
@@ -72,11 +74,15 @@ Use arrow keys, space, Enter, Ctrl to play.
 ## Running Tests
 
 ```bash
-# E2E tests (builds and runs against a live container)
+# E2E tests — single-player (builds and runs against a live container)
 docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
 
-# Or run against an already-running instance
+# E2E tests — multiplayer (starts 2 players with autodiscovery + test runner)
+docker compose -f docker-compose.test-multiplayer.yml up --build --abort-on-container-exit
+
+# Or run against already-running instances
 BASE_URL=http://localhost:8080 ./test/e2e.sh
+PLAYER1_URL=http://localhost:8081 PLAYER2_URL=http://localhost:8082 ./test/e2e-multiplayer.sh
 ```
 
 ## Multiplayer
@@ -93,12 +99,14 @@ Multiplayer uses chocolate-doom's built-in network play with a custom autodiscov
 | `DOOM_PLAYERS` | `2` | Number of players to wait for before starting |
 | `DOOM_SKILL` | `3` | Difficulty 1-5 |
 | `DOOM_DEATHMATCH` | (empty) | Set to `1` for deathmatch mode |
+| `DOOM_PEERS` | (empty) | Comma-separated peer hostnames for directed discovery (for Docker networks) |
 
 ### Autodiscovery Protocol
 
 When `DOOM_MODE=auto`, instances use `discover.sh` to find peers:
 1. Each instance broadcasts `HTTPDOOM:<hostname>:<port>` via UDP on port 2399
-2. Instances listen for peer announcements via `socat`
+2. If `DOOM_PEERS` is set, also sends directly to named peers (needed for Docker bridge networks where broadcast may not work)
+3. Instances listen for peer announcements via `socat`
 3. The lexicographically lowest hostname becomes the server
 4. Other instances connect as clients
 5. Game auto-starts when all players have joined (`-nodes` flag)
